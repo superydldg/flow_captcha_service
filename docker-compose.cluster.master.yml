@@ -1,17 +1,17 @@
 ﻿services:
-  flow-captcha-service:
+  flow-captcha-master:
     build:
       context: .
       dockerfile: Dockerfile.headed
-    container_name: flow-captcha-service
+    container_name: flow-captcha-master
     ports:
       - "8060:8060"
     environment:
-      - ALLOW_DOCKER_HEADED_CAPTCHA=true
-      - DISPLAY=:99
       - FCS_SERVER_HOST=0.0.0.0
       - FCS_SERVER_PORT=8060
-      - FCS_CLUSTER_ROLE=standalone
+      - FCS_CLUSTER_ROLE=master
+      - FCS_NODE_NAME=master-1
+      - FCS_LOG_LEVEL=INFO
     volumes:
       - ./data:/app/data
       - ./config:/app/config

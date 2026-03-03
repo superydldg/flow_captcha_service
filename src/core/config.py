@@ -71,6 +71,15 @@ class Config:
             },
             "cluster": {
                 "role": "standalone",
+                "master_base_url": "",
+                "master_cluster_key": "",
+                "node_public_base_url": "",
+                "node_api_key": "",
+                "heartbeat_interval_seconds": 15,
+                "node_weight": 100,
+                "node_max_concurrency": 1,
+                "master_node_stale_seconds": 120,
+                "master_dispatch_timeout_seconds": 45,
             },
         }
 
@@ -196,6 +205,77 @@ class Config:
     @property
     def cluster_role(self) -> str:
         return str(os.getenv("FCS_CLUSTER_ROLE", self._get("cluster", "role", "standalone"))).strip().lower()
+
+    @property
+    def cluster_master_base_url(self) -> str:
+        return str(
+            os.getenv(
+                "FCS_CLUSTER_MASTER_BASE_URL",
+                self._get("cluster", "master_base_url", ""),
+            )
+        ).strip().rstrip("/")
+
+    @property
+    def cluster_master_cluster_key(self) -> str:
+        return str(
+            os.getenv(
+                "FCS_CLUSTER_MASTER_CLUSTER_KEY",
+                self._get("cluster", "master_cluster_key", ""),
+            )
+        ).strip()
+
+    @property
+    def cluster_node_public_base_url(self) -> str:
+        return str(
+            os.getenv(
+                "FCS_CLUSTER_NODE_PUBLIC_BASE_URL",
+                self._get("cluster", "node_public_base_url", ""),
+            )
+        ).strip().rstrip("/")
+
+    @property
+    def node_api_key(self) -> str:
+        return str(
+            os.getenv(
+                "FCS_CLUSTER_NODE_API_KEY",
+                self._get("cluster", "node_api_key", ""),
+            )
+        ).strip()
+
+    @property
+    def cluster_heartbeat_interval_seconds(self) -> int:
+        value = os.getenv("FCS_CLUSTER_HEARTBEAT_INTERVAL_SECONDS")
+        if value:
+            return max(5, int(value))
+        return max(5, int(self._get("cluster", "heartbeat_interval_seconds", 15)))
+
+    @property
+    def cluster_node_weight(self) -> int:
+        value = os.getenv("FCS_CLUSTER_NODE_WEIGHT")
+        if value:
+            return max(1, int(value))
+        return max(1, int(self._get("cluster", "node_weight", 100)))
+
+    @property
+    def cluster_node_max_concurrency(self) -> int:
+        value = os.getenv("FCS_CLUSTER_NODE_MAX_CONCURRENCY")
+        if value:
+            return max(1, int(value))
+        return max(1, int(self._get("cluster", "node_max_concurrency", self.browser_count)))
+
+    @property
+    def cluster_master_node_stale_seconds(self) -> int:
+        value = os.getenv("FCS_CLUSTER_MASTER_NODE_STALE_SECONDS")
+        if value:
+            return max(10, int(value))
+        return max(10, int(self._get("cluster", "master_node_stale_seconds", 120)))
+
+    @property
+    def cluster_master_dispatch_timeout_seconds(self) -> int:
+        value = os.getenv("FCS_CLUSTER_MASTER_DISPATCH_TIMEOUT_SECONDS")
+        if value:
+            return max(5, int(value))
+        return max(5, int(self._get("cluster", "master_dispatch_timeout_seconds", 45)))
 
 
 config = Config()

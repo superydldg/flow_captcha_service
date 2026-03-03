@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import Header, HTTPException
 
+from .config import config
 from .database import Database
 
 
@@ -34,6 +35,16 @@ async def verify_service_api_key(authorization: Optional[str] = Header(default=N
         raise HTTPException(status_code=500, detail="数据库未初始化")
 
     raw_key = _extract_bearer(authorization)
+    if config.cluster_role == "subnode" and config.node_api_key and secrets.compare_digest(raw_key, config.node_api_key):
+        return {
+            "id": -1,
+            "name": "cluster_subnode_internal",
+            "enabled": True,
+            "quota_remaining": None,
+            "quota_used": 0,
+            "is_internal": True,
+        }
+
     api_key = await _db.resolve_service_api_key(raw_key)
     if not api_key:
         raise HTTPException(status_code=401, detail="API Key 无效")
@@ -59,3 +70,14 @@ async def verify_admin_token(authorization: Optional[str] = Header(default=None)
     if token not in _active_admin_tokens:
         raise HTTPException(status_code=401, detail="管理员会话无效或已过期")
     return token
+
+
+async def verify_cluster_key(x_cluster_key: Optional[str] = Header(default=None)) -> str:
+    if _db is None:
+        raise HTTPException(status_code=500, detail="数据库未初始化")
+    if not x_cluster_key:
+        raise HTTPException(status_code=401, detail="缺少 X-Cluster-Key")
+    is_valid = await _db.validate_cluster_key(x_cluster_key.strip())
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Cluster Key 无效")
+    return x_cluster_key

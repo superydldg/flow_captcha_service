@@ -5,25 +5,30 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..core.auth import issue_admin_token, revoke_admin_token, verify_admin_token
+from ..core.config import config
 from ..core.database import Database
 from ..core.models import (
+    ClusterNodeUpdateRequest,
     CreateApiKeyRequest,
     LoginRequest,
     UpdateApiKeyRequest,
     UpdateCaptchaConfigRequest,
 )
 from ..services.captcha_runtime import CaptchaRuntime
+from ..services.cluster_manager import ClusterManager
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 _db: Optional[Database] = None
 _runtime: Optional[CaptchaRuntime] = None
+_cluster: Optional[ClusterManager] = None
 
 
-def set_dependencies(db: Database, runtime: CaptchaRuntime):
-    global _db, _runtime
+def set_dependencies(db: Database, runtime: CaptchaRuntime, cluster_manager: ClusterManager):
+    global _db, _runtime, _cluster
     _db = db
     _runtime = runtime
+    _cluster = cluster_manager
 
 
 @router.post("/login")
@@ -40,6 +45,7 @@ async def admin_login(request: LoginRequest):
         "success": True,
         "token": token,
         "username": request.username,
+        "role": config.cluster_role,
     }
 
 
@@ -112,10 +118,12 @@ async def get_stats(token: str = Depends(verify_admin_token)):
 
     db_stats = await _db.get_service_stats()
     runtime_stats = await _runtime.get_stats()
+    cluster_stats = await _cluster.get_cluster_runtime_summary() if _cluster else {}
     return {
         "success": True,
         "db": db_stats,
         "runtime": runtime_stats,
+        "cluster": cluster_stats,
     }
 
 
@@ -156,3 +164,69 @@ async def update_captcha_config(
     await _runtime.reload_browser_count()
 
     return {"success": True}
+
+
+@router.get("/cluster/config")
+async def get_cluster_config(token: str = Depends(verify_admin_token)):
+    if _db is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    cluster_key = await _db.get_cluster_key()
+    return {
+        "success": True,
+        "role": config.cluster_role,
+        "cluster_key": cluster_key if config.cluster_role == "master" else "",
+        "node_name": config.node_name,
+        "master_base_url": config.cluster_master_base_url,
+        "node_public_base_url": config.cluster_node_public_base_url,
+        "heartbeat_interval_seconds": config.cluster_heartbeat_interval_seconds,
+    }
+
+
+@router.post("/cluster/config/rotate-key")
+async def rotate_cluster_key(token: str = Depends(verify_admin_token)):
+    if _db is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+    if config.cluster_role != "master":
+        raise HTTPException(status_code=400, detail="仅 master 角色可轮换 cluster key")
+
+    new_key = await _db.rotate_cluster_key()
+    return {
+        "success": True,
+        "cluster_key": new_key,
+    }
+
+
+@router.get("/cluster/nodes")
+async def list_cluster_nodes(token: str = Depends(verify_admin_token)):
+    if _db is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+    items = await _db.list_cluster_nodes()
+    return {
+        "success": True,
+        "items": items,
+    }
+
+
+@router.patch("/cluster/nodes/{node_id}")
+async def update_cluster_node(
+    node_id: int,
+    request: ClusterNodeUpdateRequest,
+    token: str = Depends(verify_admin_token),
+):
+    if _db is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    updated = await _db.update_cluster_node(
+        node_id=node_id,
+        enabled=request.enabled,
+        weight=request.weight,
+        max_concurrency=request.max_concurrency,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="节点不存在")
+
+    return {
+        "success": True,
+        "item": updated,
+    }

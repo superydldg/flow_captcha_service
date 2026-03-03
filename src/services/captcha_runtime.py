@@ -24,6 +24,9 @@ class CaptchaRuntime:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
     async def _get_browser_service(self):
+        if config.cluster_role == "master":
+            raise RuntimeError("master 角色不执行本地打码")
+
         if self._browser_service is None:
             from .browser_captcha import BrowserCaptchaService
 
@@ -61,6 +64,27 @@ class CaptchaRuntime:
             "expires_in_seconds": config.session_ttl_seconds,
         }
 
+    async def custom_score(
+        self,
+        website_url: str,
+        website_key: str,
+        verify_url: str,
+        action: str,
+        enterprise: bool,
+    ) -> Dict[str, Any]:
+        service = await self._get_browser_service()
+        payload, browser_id = await service.get_custom_score(
+            website_url=website_url,
+            website_key=website_key,
+            verify_url=verify_url,
+            action=action,
+            enterprise=enterprise,
+        )
+        payload = payload if isinstance(payload, dict) else {}
+        payload["browser_id"] = browser_id
+        payload["node_name"] = config.node_name
+        return payload
+
     async def finish(self, session_id: str) -> Tuple[bool, str, Optional[SessionEntry]]:
         entry = await self.registry.get(session_id)
         if not entry:
@@ -88,6 +112,8 @@ class CaptchaRuntime:
         return True, "ok", error_entry
 
     async def reload_browser_count(self):
+        if config.cluster_role == "master":
+            return
         if self._browser_service is None:
             return
         try:
@@ -118,6 +144,7 @@ class CaptchaRuntime:
             "role": config.cluster_role,
             "active_sessions": active_sessions,
             "cached_sessions": total_sessions,
+            "local_solve_enabled": config.cluster_role != "master",
             "browser": browser_stats,
         }
 

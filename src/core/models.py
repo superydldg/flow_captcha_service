@@ -51,6 +51,14 @@ class ErrorRequest(BaseModel):
     error_reason: str = "upstream_error"
 
 
+class CustomScoreRequest(BaseModel):
+    website_url: str = "https://antcpt.com/score_detector/"
+    website_key: str = "6LcR_okUAAAAAPYrPe-HK_0RULO1aZM15ENyM-Mf"
+    verify_url: str = "https://antcpt.com/score_detector/verify.php"
+    action: str = "homepage"
+    enterprise: bool = False
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -71,6 +79,31 @@ class UpdateCaptchaConfigRequest(BaseModel):
     browser_proxy_enabled: bool = False
     browser_proxy_url: Optional[str] = None
     browser_count: int = Field(default=1, ge=1)
+
+
+class ClusterRegisterRequest(BaseModel):
+    node_name: str = Field(min_length=1, max_length=120)
+    base_url: str = Field(min_length=1)
+    node_api_key: str = Field(min_length=1)
+    weight: int = Field(default=100, ge=1)
+    max_concurrency: int = Field(default=1, ge=1)
+    active_sessions: int = Field(default=0, ge=0)
+    cached_sessions: int = Field(default=0, ge=0)
+    healthy: bool = True
+
+
+class ClusterHeartbeatRequest(BaseModel):
+    node_name: str = Field(min_length=1, max_length=120)
+    base_url: str = Field(min_length=1)
+    active_sessions: int = Field(default=0, ge=0)
+    cached_sessions: int = Field(default=0, ge=0)
+    healthy: bool = True
+
+
+class ClusterNodeUpdateRequest(BaseModel):
+    enabled: Optional[bool] = None
+    weight: Optional[int] = Field(default=None, ge=1)
+    max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
 @dataclass

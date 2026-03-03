@@ -27,3 +27,12 @@ level = "INFO"
 
 [cluster]
 role = "standalone"
+master_base_url = ""
+master_cluster_key = ""
+node_public_base_url = ""
+node_api_key = ""
+heartbeat_interval_seconds = 15
+node_weight = 100
+node_max_concurrency = 1
+master_node_stale_seconds = 120
+master_dispatch_timeout_seconds = 45

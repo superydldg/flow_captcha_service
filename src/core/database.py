@@ -2,7 +2,6 @@
 
 import hashlib
 import secrets
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -20,6 +19,10 @@ class Database:
     @staticmethod
     def _hash_secret(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _generate_cluster_key() -> str:
+        return f"fcs_cluster_{secrets.token_urlsafe(24)}"
 
     async def init_db(self):
         async with aiosqlite.connect(self.db_path) as db:
@@ -84,9 +87,43 @@ class Database:
                 """
             )
 
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cluster_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    cluster_key TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cluster_nodes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    node_name TEXT NOT NULL UNIQUE,
+                    base_url TEXT NOT NULL,
+                    node_api_key TEXT NOT NULL,
+                    enabled BOOLEAN DEFAULT 1,
+                    healthy BOOLEAN DEFAULT 1,
+                    active_sessions INTEGER DEFAULT 0,
+                    cached_sessions INTEGER DEFAULT 0,
+                    max_concurrency INTEGER DEFAULT 1,
+                    weight INTEGER DEFAULT 100,
+                    last_heartbeat_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
             await db.execute("CREATE INDEX IF NOT EXISTS idx_captcha_jobs_created_at ON captcha_jobs(created_at DESC)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_captcha_jobs_status ON captcha_jobs(status)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_service_api_keys_enabled ON service_api_keys(enabled)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_cluster_nodes_enabled ON cluster_nodes(enabled)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_cluster_nodes_heartbeat ON cluster_nodes(last_heartbeat_at DESC)")
 
             await db.commit()
 
@@ -116,6 +153,17 @@ class Database:
                     VALUES (1, ?, ?)
                     """,
                     (config.admin_username, self._hash_secret(config.admin_password)),
+                )
+
+            cursor = await db.execute("SELECT id FROM cluster_settings WHERE id = 1")
+            row = await cursor.fetchone()
+            if not row:
+                await db.execute(
+                    """
+                    INSERT INTO cluster_settings (id, cluster_key)
+                    VALUES (1, ?)
+                    """,
+                    (self._generate_cluster_key(),),
                 )
 
             await db.commit()
@@ -266,6 +314,9 @@ class Database:
             return dict(row)
 
     async def ensure_api_key_available(self, api_key_id: int) -> Tuple[bool, str]:
+        if api_key_id <= 0:
+            return True, ""
+
         api_key = await self.get_api_key(api_key_id)
         if not api_key:
             return False, "API Key 不存在"
@@ -280,6 +331,9 @@ class Database:
         return True, ""
 
     async def consume_api_key_quota(self, api_key_id: int) -> Tuple[bool, str]:
+        if api_key_id <= 0:
+            return True, ""
+
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
@@ -394,13 +448,259 @@ class Database:
             )
             key_summary = await cursor.fetchone()
 
+            cursor = await db.execute(
+                """
+                SELECT
+                    COUNT(*) AS node_count,
+                    SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS node_enabled_count
+                FROM cluster_nodes
+                """
+            )
+            node_summary = await cursor.fetchone()
+
             return {
                 "jobs_total": int(summary["total"] or 0),
                 "jobs_success": int(summary["success"] or 0),
                 "jobs_failed": int(summary["failed"] or 0),
                 "api_key_total": int(key_summary["key_count"] or 0),
                 "api_key_enabled_total": int(key_summary["key_enabled_count"] or 0),
+                "cluster_node_total": int(node_summary["node_count"] or 0),
+                "cluster_node_enabled_total": int(node_summary["node_enabled_count"] or 0),
             }
+
+    async def get_cluster_key(self) -> str:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT cluster_key FROM cluster_settings WHERE id = 1")
+            row = await cursor.fetchone()
+            if row and row["cluster_key"]:
+                return row["cluster_key"]
+
+        new_key = self._generate_cluster_key()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO cluster_settings (id, cluster_key, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP)",
+                (new_key,),
+            )
+            await db.commit()
+        return new_key
+
+    async def rotate_cluster_key(self) -> str:
+        new_key = self._generate_cluster_key()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE cluster_settings SET cluster_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+                (new_key,),
+            )
+            await db.commit()
+        return new_key
+
+    async def validate_cluster_key(self, raw_key: str) -> bool:
+        current = await self.get_cluster_key()
+        return bool(raw_key) and secrets.compare_digest(raw_key, current)
+
+    async def upsert_cluster_node(
+        self,
+        node_name: str,
+        base_url: str,
+        node_api_key: str,
+        weight: int,
+        max_concurrency: int,
+        active_sessions: int,
+        cached_sessions: int,
+        healthy: bool,
+    ) -> Dict[str, Any]:
+        normalized_name = node_name.strip()
+        normalized_url = base_url.strip().rstrip("/")
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT id FROM cluster_nodes WHERE node_name = ?", (normalized_name,))
+            row = await cursor.fetchone()
+
+            if row:
+                node_id = int(row["id"])
+                await db.execute(
+                    """
+                    UPDATE cluster_nodes
+                    SET base_url = ?, node_api_key = ?, weight = ?, max_concurrency = ?,
+                        active_sessions = ?, cached_sessions = ?, healthy = ?,
+                        last_heartbeat_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        normalized_url,
+                        node_api_key,
+                        max(1, int(weight)),
+                        max(1, int(max_concurrency)),
+                        max(0, int(active_sessions)),
+                        max(0, int(cached_sessions)),
+                        1 if healthy else 0,
+                        node_id,
+                    ),
+                )
+            else:
+                cursor = await db.execute(
+                    """
+                    INSERT INTO cluster_nodes (
+                        node_name, base_url, node_api_key, enabled, healthy,
+                        active_sessions, cached_sessions, max_concurrency, weight,
+                        last_heartbeat_at
+                    )
+                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        normalized_name,
+                        normalized_url,
+                        node_api_key,
+                        1 if healthy else 0,
+                        max(0, int(active_sessions)),
+                        max(0, int(cached_sessions)),
+                        max(1, int(max_concurrency)),
+                        max(1, int(weight)),
+                    ),
+                )
+                node_id = int(cursor.lastrowid)
+
+            await db.commit()
+
+        node = await self.get_cluster_node(node_id)
+        if not node:
+            raise RuntimeError("节点保存失败")
+        return node
+
+    async def heartbeat_cluster_node(
+        self,
+        node_name: str,
+        base_url: str,
+        active_sessions: int,
+        cached_sessions: int,
+        healthy: bool,
+    ) -> Optional[Dict[str, Any]]:
+        normalized_name = node_name.strip()
+        normalized_url = base_url.strip().rstrip("/")
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE cluster_nodes
+                SET base_url = ?,
+                    active_sessions = ?,
+                    cached_sessions = ?,
+                    healthy = ?,
+                    last_heartbeat_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE node_name = ?
+                """,
+                (
+                    normalized_url,
+                    max(0, int(active_sessions)),
+                    max(0, int(cached_sessions)),
+                    1 if healthy else 0,
+                    normalized_name,
+                ),
+            )
+            await db.commit()
+            if cursor.rowcount <= 0:
+                return None
+
+        return await self.get_cluster_node_by_name(normalized_name)
+
+    async def list_cluster_nodes(self) -> List[Dict[str, Any]]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT id, node_name, base_url, enabled, healthy,
+                       active_sessions, cached_sessions, max_concurrency, weight,
+                       last_heartbeat_at, last_error, created_at, updated_at
+                FROM cluster_nodes
+                ORDER BY id ASC
+                """
+            )
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def get_cluster_node(self, node_id: int) -> Optional[Dict[str, Any]]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM cluster_nodes WHERE id = ?", (node_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def get_cluster_node_by_name(self, node_name: str) -> Optional[Dict[str, Any]]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM cluster_nodes WHERE node_name = ?", (node_name,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def update_cluster_node(
+        self,
+        node_id: int,
+        enabled: Optional[bool] = None,
+        weight: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        current = await self.get_cluster_node(node_id)
+        if not current:
+            return None
+
+        new_enabled = int(enabled) if enabled is not None else int(bool(current["enabled"]))
+        new_weight = max(1, int(weight)) if weight is not None else max(1, int(current["weight"] or 100))
+        new_max = (
+            max(1, int(max_concurrency))
+            if max_concurrency is not None
+            else max(1, int(current["max_concurrency"] or 1))
+        )
+
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE cluster_nodes
+                SET enabled = ?,
+                    weight = ?,
+                    max_concurrency = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (new_enabled, new_weight, new_max, node_id),
+            )
+            await db.commit()
+
+        return await self.get_cluster_node(node_id)
+
+    async def mark_cluster_node_error(self, node_id: int, error_message: str):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE cluster_nodes
+                SET last_error = ?,
+                    healthy = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (error_message[:500], node_id),
+            )
+            await db.commit()
+
+    async def get_available_cluster_nodes(self, stale_seconds: int) -> List[Dict[str, Any]]:
+        stale_seconds = max(10, int(stale_seconds))
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM cluster_nodes
+                WHERE enabled = 1
+                  AND healthy = 1
+                  AND last_heartbeat_at IS NOT NULL
+                  AND last_heartbeat_at >= datetime('now', '-' || ? || ' seconds')
+                ORDER BY id ASC
+                """,
+                (stale_seconds,),
+            )
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
 
     async def get_token(self, token_id: int):
         """兼容 browser_captcha.py 的调用；独立打码服务默认不维护业务 token。"""
