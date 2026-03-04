@@ -189,6 +189,7 @@ docker compose -f docker-compose.cluster.stack.yml up -d --build
 
 - `ghcr.io/<owner>/flow_captcha_service-master`（轻量 master）
 - `ghcr.io/<owner>/flow_captcha_service-headed`（有头 standalone/subnode）
+- 发布架构：`linux/amd64`、`linux/arm64`
 
 拉取示例：
 
