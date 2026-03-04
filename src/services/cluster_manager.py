@@ -4,6 +4,7 @@ import asyncio
 import json
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from ..core.config import config
@@ -16,6 +17,8 @@ class ClusterManager:
         self.db = db
         self.runtime = runtime
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._dispatch_cursor = 0
+        self._dispatch_lock = asyncio.Lock()
 
     async def start(self):
         if config.cluster_role == "subnode":
@@ -36,7 +39,7 @@ class ClusterManager:
             raise RuntimeError("暂无可用子节点")
 
         last_error = ""
-        for node in nodes[:2]:
+        for node in nodes:
             try:
                 result = await self._post_to_node(
                     node=node,
@@ -85,7 +88,7 @@ class ClusterManager:
             raise RuntimeError("暂无可用子节点")
 
         last_error = ""
-        for node in nodes[:2]:
+        for node in nodes:
             try:
                 return await self._post_to_node(
                     node=node,
@@ -157,15 +160,90 @@ class ClusterManager:
         if not nodes:
             return []
 
-        def _score(node: Dict[str, Any]) -> tuple[float, int]:
-            active = max(0, int(node.get("active_sessions") or 0))
-            max_concurrency = max(1, int(node.get("max_concurrency") or 1))
-            weight = max(1, int(node.get("weight") or 100))
-            load = active / max_concurrency
-            weighted = load / (weight / 100.0)
-            return weighted, int(node.get("id") or 0)
+        filtered_nodes: List[Dict[str, Any]] = []
+        for node in nodes:
+            base_url = str(node.get("base_url") or "")
+            parsed = urllib.parse.urlparse(base_url)
+            host = (parsed.hostname or "").strip().lower()
+            if parsed.scheme not in {"http", "https"} or not host:
+                debug_logger.log_warning(
+                    f"[ClusterManager] 跳过无效子节点地址 node={node.get('node_name')} base_url={base_url}"
+                )
+                continue
+            if host in {"0.0.0.0", "127.0.0.1", "localhost", "::1", "::"}:
+                debug_logger.log_warning(
+                    f"[ClusterManager] 跳过不可达子节点地址 node={node.get('node_name')} base_url={base_url}"
+                )
+                continue
+            filtered_nodes.append(node)
 
-        return sorted(nodes, key=_score)
+        if not filtered_nodes:
+            return []
+
+        decorated = [self.decorate_node_capacity(node) for node in filtered_nodes]
+        with_idle = [node for node in decorated if int(node.get("thread_idle") or 0) > 0]
+        without_idle = [node for node in decorated if int(node.get("thread_idle") or 0) <= 0]
+
+        with_idle.sort(
+            key=lambda node: (
+                -int(node.get("thread_idle") or 0),
+                int(node.get("thread_active") or 0),
+                -int(node.get("weight") or 100),
+                int(node.get("id") or 0),
+            )
+        )
+        without_idle.sort(
+            key=lambda node: (
+                int(node.get("thread_active") or 0),
+                -int(node.get("weight") or 100),
+                int(node.get("id") or 0),
+            )
+        )
+
+        async with self._dispatch_lock:
+            if with_idle:
+                weighted_ring: List[Dict[str, Any]] = []
+                for node in with_idle:
+                    idle = max(1, int(node.get("thread_idle") or 0))
+                    weight = max(1, int(node.get("weight") or 100))
+                    weight_factor = max(1, round(weight / 100.0))
+                    tickets = min(200, max(1, idle * weight_factor))
+                    weighted_ring.extend([node] * tickets)
+
+                start = self._dispatch_cursor % len(weighted_ring)
+                self._dispatch_cursor = (self._dispatch_cursor + 1) % len(weighted_ring)
+
+                ordered_idle: List[Dict[str, Any]] = []
+                seen_node_ids = set()
+                for offset in range(len(weighted_ring)):
+                    node = weighted_ring[(start + offset) % len(weighted_ring)]
+                    node_id = int(node.get("id") or 0)
+                    if node_id in seen_node_ids:
+                        continue
+                    seen_node_ids.add(node_id)
+                    ordered_idle.append(node)
+                    if len(ordered_idle) >= len(with_idle):
+                        break
+
+                return ordered_idle + without_idle
+
+            start = self._dispatch_cursor % len(without_idle)
+            self._dispatch_cursor = (self._dispatch_cursor + 1) % len(without_idle)
+            return without_idle[start:] + without_idle[:start]
+
+    @staticmethod
+    def decorate_node_capacity(node: Dict[str, Any]) -> Dict[str, Any]:
+        active = max(0, int(node.get("active_sessions") or 0))
+        total = max(1, int(node.get("max_concurrency") or 1))
+        idle = max(total - active, 0)
+        decorated = dict(node)
+        decorated["thread_total"] = total
+        decorated["thread_active"] = active
+        decorated["thread_idle"] = idle
+        return decorated
+
+    def decorate_nodes_capacity(self, nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [self.decorate_node_capacity(node) for node in (nodes or [])]
 
     async def _post_to_node(
         self,
@@ -268,18 +346,47 @@ class ClusterManager:
 
         public_base_url = config.cluster_node_public_base_url
         if not public_base_url:
-            public_base_url = f"http://{config.server_host}:{config.server_port}"
+            debug_logger.log_warning(
+                "[ClusterManager] subnode mode 缺少 node_public_base_url，跳过心跳。"
+                "请填写主节点可以访问到的子节点地址，例如 http://subnode:8060 或 http://公网IP:8061"
+            )
+            return
+
+        parsed_public = urllib.parse.urlparse(public_base_url)
+        public_host = (parsed_public.hostname or "").strip().lower()
+        if parsed_public.scheme not in {"http", "https"} or not public_host:
+            debug_logger.log_warning(
+                f"[ClusterManager] node_public_base_url 无效: {public_base_url}"
+            )
+            return
+
+        if public_host in {"0.0.0.0", "127.0.0.1", "localhost", "::1", "::"}:
+            debug_logger.log_warning(
+                "[ClusterManager] node_public_base_url 不能是 0.0.0.0 / 127.0.0.1 / localhost。"
+                f"当前值: {public_base_url}"
+            )
+            return
 
         runtime_stats = await self.runtime.get_stats()
         active_sessions = int(runtime_stats.get("active_sessions") or 0)
         cached_sessions = int(runtime_stats.get("cached_sessions") or 0)
+        browser_stats = runtime_stats.get("browser") if isinstance(runtime_stats, dict) else {}
+        configured_browser_count = 0
+        if isinstance(browser_stats, dict):
+            configured_browser_count = max(0, int(browser_stats.get("configured_browser_count") or 0))
+        effective_capacity = max(
+            1,
+            configured_browser_count,
+            int(config.cluster_node_max_concurrency),
+            active_sessions,
+        )
 
         register_payload = {
             "node_name": config.node_name,
             "base_url": public_base_url,
             "node_api_key": node_api_key,
             "weight": config.cluster_node_weight,
-            "max_concurrency": config.cluster_node_max_concurrency,
+            "max_concurrency": effective_capacity,
             "active_sessions": active_sessions,
             "cached_sessions": cached_sessions,
             "healthy": True,
@@ -319,10 +426,18 @@ class ClusterManager:
             raise RuntimeError(f"heartbeat failed: {hb_status}, {(hb_text or '')[:200]}")
 
     async def get_cluster_runtime_summary(self) -> Dict[str, Any]:
-        nodes = await self.db.list_cluster_nodes()
+        nodes = self.decorate_nodes_capacity(await self.db.list_cluster_nodes())
+        total_thread_capacity = sum(max(0, int(node.get("thread_total") or 0)) for node in nodes)
+        total_idle_capacity = sum(max(0, int(node.get("thread_idle") or 0)) for node in nodes)
+        total_active_capacity = sum(max(0, int(node.get("thread_active") or 0)) for node in nodes)
+        healthy_node_count = sum(1 for node in nodes if bool(node.get("healthy")) and bool(node.get("enabled")))
         return {
             "role": config.cluster_role,
             "node_name": config.node_name,
             "node_count": len(nodes),
+            "healthy_node_count": healthy_node_count,
+            "total_thread_capacity": total_thread_capacity,
+            "total_idle_capacity": total_idle_capacity,
+            "total_active_capacity": total_active_capacity,
             "nodes": nodes,
         }

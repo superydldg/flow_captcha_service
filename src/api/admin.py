@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,6 +33,188 @@ RESTART_REQUIRED_CONFIG_KEYS = {
     "storage.db_path",
     "cluster.role",
 }
+
+
+def _assert_master_role(feature_name: str):
+    if config.cluster_role != "master":
+        raise HTTPException(status_code=400, detail=f"仅 master 角色可使用：{feature_name}")
+
+
+def _assert_local_captcha_role():
+    if config.cluster_role == "master":
+        raise HTTPException(status_code=400, detail="master 角色不执行本地打码，无需配置运行时打码参数")
+
+
+async def _build_setup_guide_payload() -> Dict[str, Any]:
+    if _db is None:
+        return {
+            "role": config.cluster_role,
+            "is_first_deploy": False,
+            "has_blocker": False,
+            "items": [],
+            "next_steps": [],
+        }
+
+    role = config.cluster_role
+    items: list[Dict[str, Any]] = []
+    next_steps: list[str] = []
+
+    default_admin = await _db.verify_admin_credentials("admin", "admin")
+    if default_admin:
+        items.append(
+            {
+                "level": "critical",
+                "title": "请先修改默认管理员账号",
+                "detail": "当前仍可使用 admin/admin 登录，存在明显安全风险。",
+                "key": "admin.default_credentials",
+            }
+        )
+        next_steps.append("先在“管理员账号”中修改用户名和密码，再继续其他配置。")
+
+    if role == "master":
+        stats = await _db.get_service_stats()
+        if int(stats.get("api_key_total") or 0) <= 0:
+            items.append(
+                {
+                    "level": "required",
+                    "title": "主节点还没有可用 API Key",
+                    "detail": "flow2api 调用主节点前，需要先创建至少 1 个启用状态的 API Key。",
+                    "key": "master.api_key_missing",
+                }
+            )
+        if int(stats.get("cluster_node_total") or 0) <= 0:
+            items.append(
+                {
+                    "level": "required",
+                    "title": "主节点还没有注册子节点",
+                    "detail": "请先启动 subnode，并配置 master 地址与集群密钥。",
+                    "key": "master.subnode_missing",
+                }
+            )
+        next_steps.append("确认主节点端口已对外可达，再让子节点连接注册。")
+    elif role == "subnode":
+        if not config.cluster_master_base_url:
+            items.append(
+                {
+                    "level": "required",
+                    "title": "未配置主节点地址",
+                    "detail": "请填写 cluster.master_base_url，例如 http://master:8060。",
+                    "key": "subnode.master_base_url_missing",
+                }
+            )
+        if not config.cluster_master_cluster_key:
+            items.append(
+                {
+                    "level": "required",
+                    "title": "未配置集群密钥",
+                    "detail": "请填写 cluster.master_cluster_key，需与主节点 Cluster Key 完全一致。",
+                    "key": "subnode.cluster_key_missing",
+                }
+            )
+        if not config.cluster_node_public_base_url:
+            items.append(
+                {
+                    "level": "required",
+                    "title": "未配置子节点对外地址",
+                    "detail": "请填写 cluster.node_public_base_url，主节点将通过该地址回调子节点。",
+                    "key": "subnode.public_base_url_missing",
+                }
+            )
+        if not config.node_api_key:
+            items.append(
+                {
+                    "level": "required",
+                    "title": "未配置子节点 API Key",
+                    "detail": "请填写 cluster.node_api_key，主节点调用子节点时会校验该 key。",
+                    "key": "subnode.node_api_key_missing",
+                }
+            )
+        next_steps.append("保存后重启 subnode，观察主节点“子节点状态”是否为健康。")
+    else:
+        next_steps.append("standalone 模式可直接使用本地有头打码，无需集群配置。")
+
+    has_blocker = any(item["level"] in {"critical", "required"} for item in items)
+    is_first_deploy = default_admin or has_blocker
+    if not items:
+        next_steps.append("当前基础配置已完整，可直接投入调用。")
+
+    return {
+        "role": role,
+        "is_first_deploy": is_first_deploy,
+        "has_blocker": has_blocker,
+        "items": items,
+        "next_steps": next_steps,
+    }
+
+
+def _validate_subnode_fields_before_persist(updates: Dict[str, Dict[str, Any]]):
+    cluster_updates = updates.get("cluster", {}) if isinstance(updates.get("cluster"), dict) else {}
+    env_overrides = config.get_active_env_overrides()
+
+    role_from_update = str(cluster_updates.get("role") or "").strip().lower()
+    if "FCS_CLUSTER_ROLE" in env_overrides:
+        effective_role = config.cluster_role
+    else:
+        effective_role = role_from_update or config.cluster_role
+
+    if effective_role != "subnode":
+        return
+
+    def _pick_value(update_key: str, env_key: str, runtime_value: str) -> str:
+        if env_key in env_overrides:
+            return str(runtime_value or "").strip()
+        if update_key in cluster_updates:
+            return str(cluster_updates.get(update_key) or "").strip()
+        return str(runtime_value or "").strip()
+
+    master_base_url = _pick_value(
+        update_key="master_base_url",
+        env_key="FCS_CLUSTER_MASTER_BASE_URL",
+        runtime_value=config.cluster_master_base_url,
+    )
+    master_cluster_key = _pick_value(
+        update_key="master_cluster_key",
+        env_key="FCS_CLUSTER_MASTER_CLUSTER_KEY",
+        runtime_value=config.cluster_master_cluster_key,
+    )
+    node_public_base_url = _pick_value(
+        update_key="node_public_base_url",
+        env_key="FCS_CLUSTER_NODE_PUBLIC_BASE_URL",
+        runtime_value=config.cluster_node_public_base_url,
+    )
+    node_api_key = _pick_value(
+        update_key="node_api_key",
+        env_key="FCS_CLUSTER_NODE_API_KEY",
+        runtime_value=config.node_api_key,
+    )
+
+    missing_fields: list[str] = []
+    if not master_base_url:
+        missing_fields.append("cluster.master_base_url")
+    if not master_cluster_key:
+        missing_fields.append("cluster.master_cluster_key")
+    if not node_public_base_url:
+        missing_fields.append("cluster.node_public_base_url")
+    if not node_api_key:
+        missing_fields.append("cluster.node_api_key")
+    if missing_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"subnode 模式缺少必填配置: {', '.join(missing_fields)}",
+        )
+
+    parsed_public = urllib.parse.urlparse(node_public_base_url)
+    public_host = (parsed_public.hostname or "").strip().lower()
+    if parsed_public.scheme not in {"http", "https"} or not public_host:
+        raise HTTPException(status_code=400, detail="cluster.node_public_base_url 格式无效")
+    if public_host in {"0.0.0.0", "127.0.0.1", "localhost", "::1", "::"}:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "cluster.node_public_base_url 不能使用 0.0.0.0 / 127.0.0.1 / localhost，"
+                "必须是主节点可访问地址"
+            ),
+        )
 
 
 def _as_bool(value: Any, field_name: str) -> bool:
@@ -338,8 +521,10 @@ async def get_system_config(token: str = Depends(verify_admin_token)):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
     profile = await _db.get_admin_profile()
+    setup_guide = await _build_setup_guide_payload()
     return {
         "success": True,
+        "setup_guide": setup_guide,
         **_build_system_config_payload(profile),
     }
 
@@ -357,6 +542,7 @@ async def update_system_config(
     if not updates:
         raise HTTPException(status_code=400, detail="没有可更新的系统配置字段")
 
+    _validate_subnode_fields_before_persist(updates)
     config.update_config_sections(updates)
 
     if "log.level" in changed_keys:
@@ -368,12 +554,24 @@ async def update_system_config(
         message += "；部分配置需要重启服务后完全生效"
 
     profile = await _db.get_admin_profile()
+    setup_guide = await _build_setup_guide_payload()
     return {
         "success": True,
         "message": message,
         "restart_required": restart_required,
         "changed_keys": changed_keys,
+        "setup_guide": setup_guide,
         **_build_system_config_payload(profile),
+    }
+
+
+@router.get("/setup-guide")
+async def get_setup_guide(token: str = Depends(verify_admin_token)):
+    if _db is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+    return {
+        "success": True,
+        **(await _build_setup_guide_payload()),
     }
 
 
@@ -381,6 +579,7 @@ async def update_system_config(
 async def list_api_keys(token: str = Depends(verify_admin_token)):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_master_role("API Key 管理")
     items = await _db.list_api_keys()
     return {"success": True, "items": items}
 
@@ -389,6 +588,7 @@ async def list_api_keys(token: str = Depends(verify_admin_token)):
 async def create_api_key(request: CreateApiKeyRequest, token: str = Depends(verify_admin_token)):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_master_role("API Key 管理")
 
     raw_key, item = await _db.create_api_key(request.name, request.quota_remaining)
     return {
@@ -407,6 +607,7 @@ async def update_api_key(
 ):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_master_role("API Key 管理")
 
     item = await _db.update_api_key(
         api_key_id=api_key_id,
@@ -453,13 +654,18 @@ async def get_stats(token: str = Depends(verify_admin_token)):
 async def get_captcha_config(token: str = Depends(verify_admin_token)):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_local_captcha_role()
 
     cfg = await _db.get_captcha_config()
+    from ..services.browser_captcha import split_browser_proxy_pool
+
+    proxy_pool_size = len(split_browser_proxy_pool(cfg.browser_proxy_url or ""))
     return {
         "success": True,
         "browser_proxy_enabled": cfg.browser_proxy_enabled,
         "browser_proxy_url": cfg.browser_proxy_url or "",
         "browser_count": cfg.browser_count,
+        "browser_proxy_pool_size": proxy_pool_size,
     }
 
 
@@ -470,6 +676,7 @@ async def update_captcha_config(
 ):
     if _db is None or _runtime is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_local_captcha_role()
 
     if request.browser_proxy_enabled and request.browser_proxy_url:
         from ..services.browser_captcha import validate_browser_proxy_url
@@ -509,8 +716,7 @@ async def get_cluster_config(token: str = Depends(verify_admin_token)):
 async def rotate_cluster_key(token: str = Depends(verify_admin_token)):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
-    if config.cluster_role != "master":
-        raise HTTPException(status_code=400, detail="仅 master 角色可轮换 cluster key")
+    _assert_master_role("Cluster Key 轮换")
 
     new_key = await _db.rotate_cluster_key()
     return {
@@ -523,7 +729,10 @@ async def rotate_cluster_key(token: str = Depends(verify_admin_token)):
 async def list_cluster_nodes(token: str = Depends(verify_admin_token)):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_master_role("子节点管理")
     items = await _db.list_cluster_nodes()
+    if _cluster is not None:
+        items = _cluster.decorate_nodes_capacity(items)
     return {
         "success": True,
         "items": items,
@@ -538,6 +747,7 @@ async def update_cluster_node(
 ):
     if _db is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+    _assert_master_role("子节点管理")
 
     updated = await _db.update_cluster_node(
         node_id=node_id,

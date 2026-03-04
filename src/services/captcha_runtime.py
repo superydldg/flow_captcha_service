@@ -138,6 +138,17 @@ class CaptchaRuntime:
                 browser_stats = self._browser_service.get_stats()
             except Exception as e:
                 debug_logger.log_warning(f"[CaptchaRuntime] get browser stats failed: {e}")
+        elif config.cluster_role != "master":
+            try:
+                captcha_cfg = await self.db.get_captcha_config()
+                browser_stats["configured_browser_count"] = max(1, int(captcha_cfg.browser_count or 1))
+            except Exception as e:
+                debug_logger.log_warning(f"[CaptchaRuntime] read browser_count from db failed: {e}")
+
+        configured_count = max(1, int(browser_stats.get("configured_browser_count") or config.browser_count or 1))
+        browser_stats["thread_total"] = configured_count
+        browser_stats["thread_idle"] = max(configured_count - active_sessions, 0)
+        browser_stats["thread_active"] = active_sessions
 
         return {
             "node_name": config.node_name,

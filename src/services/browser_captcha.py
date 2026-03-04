@@ -245,11 +245,40 @@ def normalize_browser_proxy_url(proxy_url: str) -> tuple[Optional[str], Optional
 
     return proxy_url, None
 
+
+def split_browser_proxy_pool(proxy_value: str) -> List[str]:
+    """将代理池文本切分为代理列表（支持换行、逗号、分号分隔）。"""
+    if not proxy_value:
+        return []
+    parts = re.split(r"[\r\n,;]+", str(proxy_value))
+    return [part.strip() for part in parts if part and part.strip()]
+
+
+def normalize_browser_proxy_pool(proxy_value: str) -> tuple[List[str], List[str]]:
+    """标准化代理池列表并返回 warning 列表。"""
+    normalized: List[str] = []
+    warnings: List[str] = []
+    for index, raw_proxy in enumerate(split_browser_proxy_pool(proxy_value), start=1):
+        normalized_proxy, warning_message = normalize_browser_proxy_url(raw_proxy)
+        if not normalized_proxy:
+            continue
+        normalized.append(normalized_proxy)
+        if warning_message:
+            warnings.append(f"代理#{index}: {warning_message}")
+    return normalized, warnings
+
+
 def validate_browser_proxy_url(proxy_url: str) -> tuple[bool, str]:
-    if not proxy_url: return True, None
-    normalized_proxy_url, _ = normalize_browser_proxy_url(proxy_url)
-    parsed = parse_proxy_url(normalized_proxy_url)
-    if not parsed: return False, "代理格式错误"
+    proxy_pool = split_browser_proxy_pool(proxy_url)
+    if not proxy_pool:
+        return True, None
+
+    for index, raw_proxy in enumerate(proxy_pool, start=1):
+        normalized_proxy_url, _ = normalize_browser_proxy_url(raw_proxy)
+        parsed = parse_proxy_url(normalized_proxy_url)
+        if not parsed:
+            return False, f"代理池第 {index} 项格式错误"
+
     return True, None
 
 class TokenBrowser:
@@ -388,11 +417,6 @@ class TokenBrowser:
             if token_proxy_url and token_proxy_url.strip():
                 candidate_proxy_url = token_proxy_url.strip()
                 proxy_source = "token"
-            elif self.db:
-                captcha_config = await self.db.get_captcha_config()
-                if captcha_config.browser_proxy_enabled and captcha_config.browser_proxy_url:
-                    candidate_proxy_url = captcha_config.browser_proxy_url.strip()
-                    proxy_source = "global"
 
             if candidate_proxy_url:
                 normalized_proxy_url, proxy_warning = normalize_browser_proxy_url(candidate_proxy_url)
@@ -1146,6 +1170,7 @@ class TokenBrowser:
         website_key: str,
         action: str = "homepage",
         enterprise: bool = False,
+        token_proxy_url: Optional[str] = None,
     ) -> Optional[str]:
         """获取任意站点的 reCAPTCHA token，成功后立即关闭浏览器。"""
         async with self._semaphore:
@@ -1157,7 +1182,7 @@ class TokenBrowser:
                 context = None
                 try:
                     start_ts = time.time()
-                    playwright, browser, context = await self._create_browser()
+                    playwright, browser, context = await self._create_browser(token_proxy_url=token_proxy_url)
                     token = await self._execute_custom_captcha(
                         context=context,
                         website_url=website_url,
@@ -1197,6 +1222,7 @@ class TokenBrowser:
         verify_url: str,
         action: str = "homepage",
         enterprise: bool = False,
+        token_proxy_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """在同一个浏览器页面里获取 token 并直接校验分数。"""
         async with self._semaphore:
@@ -1208,7 +1234,7 @@ class TokenBrowser:
                 context = None
                 try:
                     started_at = time.time()
-                    playwright, browser, context = await self._create_browser()
+                    playwright, browser, context = await self._create_browser(token_proxy_url=token_proxy_url)
                     payload = await self._execute_custom_captcha(
                         context=context,
                         website_url=website_url,
@@ -1269,6 +1295,8 @@ class BrowserCaptchaService:
         # 浏览器数量配置
         self._browser_count = 1  # 默认 1 个，会从数据库加载
         self._round_robin_index = 0  # 轮询索引
+        self._proxy_pool_cursor_by_key: Dict[str, int] = {}
+        self._proxy_pool_lock = asyncio.Lock()
         
         # 统计指标
         self._stats = {
@@ -1365,16 +1393,66 @@ class BrowserCaptchaService:
         return browser_id
 
     async def _resolve_token_proxy_url(self, token_id: Optional[int]) -> Optional[str]:
-        """读取 token 级打码代理，为空时回退全局配置。"""
+        """读取 token 级打码代理；支持代理池轮询。"""
         if not token_id or not self.db:
             return None
         try:
             token = await self.db.get_token(token_id)
             if token and token.captcha_proxy_url and token.captcha_proxy_url.strip():
-                return token.captcha_proxy_url.strip()
+                return await self._pick_proxy_from_pool(
+                    token.captcha_proxy_url.strip(),
+                    cursor_key=f"token:{token_id}",
+                )
         except Exception as e:
             debug_logger.log_warning(f"[BrowserCaptcha] 读取 token({token_id}) 打码代理失败: {e}")
         return None
+
+    async def _resolve_global_proxy_url(self) -> Optional[str]:
+        """读取全局代理配置并按代理池轮询。"""
+        if not self.db:
+            return None
+        try:
+            captcha_config = await self.db.get_captcha_config()
+            if not captcha_config.browser_proxy_enabled:
+                return None
+            if not captcha_config.browser_proxy_url:
+                return None
+            return await self._pick_proxy_from_pool(
+                captcha_config.browser_proxy_url.strip(),
+                cursor_key="global",
+            )
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] 读取全局代理池失败: {e}")
+            return None
+
+    async def _pick_proxy_from_pool(self, proxy_value: str, cursor_key: str) -> Optional[str]:
+        """从代理池中按游标轮询取出一个代理。"""
+        normalized_pool, warning_messages = normalize_browser_proxy_pool(proxy_value)
+        for warning in warning_messages:
+            debug_logger.log_warning(f"[BrowserCaptcha] {warning}")
+
+        valid_pool: List[str] = []
+        for index, normalized_proxy in enumerate(normalized_pool, start=1):
+            if parse_proxy_url(normalized_proxy):
+                valid_pool.append(normalized_proxy)
+            else:
+                debug_logger.log_warning(f"[BrowserCaptcha] 代理池第 {index} 项格式无效，已忽略")
+
+        if not valid_pool:
+            return None
+
+        async with self._proxy_pool_lock:
+            cursor = int(self._proxy_pool_cursor_by_key.get(cursor_key, 0))
+            selected_proxy = valid_pool[cursor % len(valid_pool)]
+            self._proxy_pool_cursor_by_key[cursor_key] = (cursor + 1) % len(valid_pool)
+        return selected_proxy
+
+    async def _resolve_effective_proxy_url(self, token_id: Optional[int]) -> Optional[str]:
+        """优先 token 代理池；否则回退到全局代理池。"""
+        token_proxy = await self._resolve_token_proxy_url(token_id)
+        if token_proxy:
+            return token_proxy
+        return await self._resolve_global_proxy_url()
     
     async def get_token(self, project_id: str, action: str = "IMAGE_GENERATION", token_id: int = None) -> tuple[Optional[str], int]:
         """获取 reCAPTCHA Token（轮询分配到不同浏览器）
@@ -1391,7 +1469,7 @@ class BrowserCaptchaService:
         self._check_available()
         
         self._stats["req_total"] += 1
-        token_proxy_url = await self._resolve_token_proxy_url(token_id)
+        token_proxy_url = await self._resolve_effective_proxy_url(token_id)
         
         # 全局并发限制（如果已配置）
         if self._token_semaphore:
@@ -1443,6 +1521,7 @@ class BrowserCaptchaService:
     ) -> tuple[Optional[str], int]:
         """获取任意站点的 reCAPTCHA token，用于分数测试。"""
         self._check_available()
+        token_proxy_url = await self._resolve_global_proxy_url()
 
         if self._token_semaphore:
             async with self._token_semaphore:
@@ -1453,6 +1532,7 @@ class BrowserCaptchaService:
                     website_key=website_key,
                     action=action,
                     enterprise=enterprise,
+                    token_proxy_url=token_proxy_url,
                 )
             return token, browser_id
 
@@ -1463,6 +1543,7 @@ class BrowserCaptchaService:
             website_key=website_key,
             action=action,
             enterprise=enterprise,
+            token_proxy_url=token_proxy_url,
         )
         return token, browser_id
 
@@ -1476,6 +1557,7 @@ class BrowserCaptchaService:
     ) -> tuple[Dict[str, Any], int]:
         """在浏览器页面内完成 token 获取与分数校验。"""
         self._check_available()
+        token_proxy_url = await self._resolve_global_proxy_url()
 
         if self._token_semaphore:
             async with self._token_semaphore:
@@ -1487,6 +1569,7 @@ class BrowserCaptchaService:
                     verify_url=verify_url,
                     action=action,
                     enterprise=enterprise,
+                    token_proxy_url=token_proxy_url,
                 )
             return payload, browser_id
 
@@ -1498,6 +1581,7 @@ class BrowserCaptchaService:
             verify_url=verify_url,
             action=action,
             enterprise=enterprise,
+            token_proxy_url=token_proxy_url,
         )
         return payload, browser_id
 

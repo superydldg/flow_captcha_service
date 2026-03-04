@@ -3,377 +3,503 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>flow_captcha_service 管理面板</title>
+  <title>flow_captcha_service 管理后台</title>
   <style>
-    :root { --bg:#0f1720; --panel:#162437; --line:#2d415f; --text:#e8efff; --muted:#9bb0d2; --ok:#22c55e; --err:#ef4444; --accent:#3b82f6; }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:"Segoe UI","Microsoft YaHei",sans-serif; color:var(--text); background:radial-gradient(circle at 10% 0,#27486d,transparent 30%),linear-gradient(155deg,#0f1720,#0a1119); }
-    .wrap { max-width:1200px; margin:0 auto; padding:20px 14px 40px; }
-    h1 { margin:0 0 6px; font-size:25px; }
-    .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
-    .pill { display:inline-block; border:1px solid var(--line); padding:6px 10px; border-radius:999px; font-size:12px; color:var(--muted); }
-    .panel { margin-top:12px; border:1px solid var(--line); border-radius:12px; background:linear-gradient(180deg,#1a2a3f,#132131); padding:12px; }
-    .panel h2 { margin:0 0 10px; font-size:16px; }
-    .row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
-    .field { display:flex; flex-direction:column; gap:5px; }
-    .field label { font-size:12px; color:var(--muted); }
-    .field input, .field select { border:1px solid var(--line); border-radius:8px; background:#0f1b2a; color:var(--text); padding:7px 9px; font-size:13px; }
-    .check { display:flex; align-items:center; gap:6px; margin-top:24px; }
-    .actions { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
-    button { border:0; border-radius:8px; padding:7px 12px; color:#fff; background:linear-gradient(135deg,#3b82f6,#0ea5a4); cursor:pointer; font-size:13px; }
-    button.secondary { border:1px solid var(--line); background:transparent; }
-    button.danger { background:linear-gradient(135deg,#ef4444,#dc2626); }
-    .flash { margin-top:10px; padding:9px; border-radius:8px; border:1px solid var(--line); display:none; font-size:13px; }
-    .ok { display:block; color:#86efac; border-color:rgba(34,197,94,.45); background:rgba(34,197,94,.12); }
-    .err { display:block; color:#fca5a5; border-color:rgba(239,68,68,.45); background:rgba(239,68,68,.12); }
-    .warn { margin-top:8px; border-left:4px solid #f59e0b; padding:8px; background:rgba(245,158,11,.12); border-radius:8px; color:#fde68a; font-size:12px; display:none; }
-    .cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
-    .card { border:1px solid var(--line); border-radius:10px; padding:8px; }
-    .card .k { color:var(--muted); font-size:12px; }
-    .card .v { margin-top:3px; font-size:18px; font-weight:700; }
-    table { width:100%; border-collapse:collapse; margin-top:8px; font-size:12px; }
-    th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; }
-    th { color:var(--muted); }
-    .hidden { display:none !important; }
-    #dash { display:none; }
-    @media(max-width:980px){ .row,.cards{grid-template-columns:repeat(2,minmax(0,1fr));}}
-    @media(max-width:660px){ .row,.cards{grid-template-columns:1fr;} h1{font-size:22px;} }
+    :root{--bg:#f4f7fb;--panel:#fff;--line:#e2e8f0;--text:#0f172a;--muted:#64748b;--primary:#2563eb;--ok:#dcfce7;--warn:#fef3c7;--err:#fee2e2;--shadow:0 10px 30px rgba(15,23,42,.08)}
+    *{box-sizing:border-box}body{margin:0;color:var(--text);background:radial-gradient(circle at 8% 0,#e2ecff 0,rgba(226,236,255,0) 32%),radial-gradient(circle at 92% 8%,#ecfeff 0,rgba(236,254,255,0) 28%),var(--bg);font-family:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif}
+    .container{width:min(1180px,94vw);margin:0 auto;padding:20px 0 32px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.title{margin:0;font-size:26px}.subtitle{margin:6px 0 0;color:var(--muted);font-size:13px}
+    .role-badge{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:13px;color:#1e293b;white-space:nowrap}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;margin-top:14px}.panel h2{margin:0;font-size:18px}.panel-desc{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.6}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}.field{display:flex;flex-direction:column;gap:6px}.field label{font-size:13px;font-weight:600;color:#334155}.field .hint{font-size:12px;color:var(--muted)}
+    .field input,.field select,.field textarea{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:10px 11px;font-size:13px;color:#0f172a;background:#fff;outline:none}.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}.field textarea{min-height:90px;resize:vertical}
+    .checkbox-line{display:flex;align-items:center;gap:8px;margin-top:10px;color:#334155;font-size:13px;font-weight:600}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    button{border:1px solid transparent;border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;color:#fff;background:linear-gradient(135deg,#2563eb,#1d4ed8)}button.secondary{color:#1e293b;border-color:var(--line);background:#fff}button.warn{background:linear-gradient(135deg,#d97706,#b45309)}
+    .notice{margin-top:12px;border-radius:10px;border:1px solid;padding:10px;font-size:13px;line-height:1.6;display:none}.notice.ok{display:block;background:var(--ok);border-color:#86efac;color:#166534}.notice.warn{display:block;background:var(--warn);border-color:#fcd34d;color:#92400e}.notice.err{display:block;background:var(--err);border-color:#fecaca;color:#991b1b}
+    .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}.card{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff}.card .k{font-size:12px;color:var(--muted)}.card .v{margin-top:6px;font-size:24px;font-weight:700;color:#0b1324}
+    .guide-items,.guide-steps{margin:10px 0 0;padding-left:18px;line-height:1.7;font-size:13px}.guide-tag{display:inline-flex;align-items:center;border-radius:999px;font-size:11px;padding:1px 8px;margin-right:8px;border:1px solid}.guide-tag.critical{color:#991b1b;background:#fee2e2;border-color:#fca5a5}.guide-tag.required{color:#92400e;background:#fef3c7;border-color:#fcd34d}.guide-tag.info{color:#1e3a8a;background:#dbeafe;border-color:#93c5fd}
+    .table-wrap{width:100%;overflow-x:auto}table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}th,td{border-bottom:1px solid #edf2f7;padding:9px 8px;text-align:left;vertical-align:middle}th{color:#475569;font-weight:700;background:#f8fafc}
+    .hidden{display:none!important}#dashboard{display:none}details.advanced{margin-top:10px;border:1px dashed #cbd5e1;border-radius:10px;padding:8px 10px 10px;background:#fafcff}details.advanced>summary{cursor:pointer;font-size:13px;color:#1e3a8a;font-weight:600}
+    @media (max-width:1000px){.grid,.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (max-width:640px){.topbar{flex-direction:column;align-items:flex-start}.grid,.cards{grid-template-columns:1fr}.title{font-size:22px}}
   </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>flow_captcha_service 管理面板</h1>
-  <div class="sub">支持主节点/子节点差异化展示与配置编辑</div>
-  <div class="pill">当前角色：<b id="roleTag">未登录</b></div>
-  <div id="flash" class="flash"></div>
-  <div id="envWarn" class="warn"></div>
-
-  <section id="login" class="panel">
-    <h2>管理员登录</h2>
-    <div class="row">
-      <div class="field"><label>用户名</label><input id="u" value="admin" /></div>
-      <div class="field"><label>密码</label><input id="p" type="password" value="admin" /></div>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1 class="title">flow_captcha_service 管理后台</h1>
+        <p class="subtitle">简化配置、中文提示、按角色展示：主节点/子节点/单机模式</p>
+      </div>
+      <div id="roleBadge" class="role-badge">当前角色：未登录</div>
     </div>
-    <div class="actions"><button id="loginBtn">登录</button></div>
-  </section>
 
-  <div id="dash">
-    <section class="panel">
-      <h2>概览</h2>
-      <div class="cards">
-        <div class="card"><div class="k">活跃会话</div><div id="s1" class="v">-</div></div>
-        <div class="card"><div class="k">缓存会话</div><div id="s2" class="v">-</div></div>
-        <div class="card"><div class="k">总调用量</div><div id="s3" class="v">-</div></div>
-        <div class="card"><div class="k">可用 API Key</div><div id="s4" class="v">-</div></div>
+    <div id="notice" class="notice"></div>
+    <div id="envNotice" class="notice warn hidden"></div>
+
+    <section id="loginPanel" class="panel">
+      <h2>管理员登录</h2>
+      <p class="panel-desc">默认首次账号通常为 admin / admin，登录后建议立即修改。</p>
+      <div class="grid">
+        <div class="field"><label>用户名</label><input id="loginUsername" value="admin" /></div>
+        <div class="field"><label>密码</label><input id="loginPassword" type="password" value="admin" /></div>
       </div>
-      <div class="actions"><button id="refresh">刷新</button><button id="logout" class="secondary">退出</button></div>
+      <div class="actions"><button id="loginBtn">登录后台</button></div>
     </section>
 
-    <section class="panel">
-      <h2>管理员账号</h2>
-      <div class="row">
-        <div class="field"><label>当前用户名</label><input id="adminUser" readonly /></div>
-        <div class="field"><label>新用户名</label><input id="newUser" /></div>
-        <div class="field"><label>当前密码</label><input id="oldPwd" type="password" /></div>
-        <div class="field"><label>新密码</label><input id="newPwd" type="password" /></div>
-      </div>
-      <div class="actions"><button id="saveAdmin">更新账号</button></div>
-    </section>
+    <div id="dashboard">
+      <section id="guidePanel" class="panel hidden">
+        <h2>首次部署引导</h2>
+        <p id="guideSummary" class="panel-desc"></p>
+        <ul id="guideItems" class="guide-items"></ul>
+        <ol id="guideSteps" class="guide-steps"></ol>
+      </section>
 
-    <section class="panel">
-      <h2>运行时打码配置（数据库）</h2>
-      <div class="row">
-        <div class="field"><label>browser_count</label><input id="bc" type="number" min="1" /></div>
-        <div class="field"><label>browser_proxy_url</label><input id="bpu" /></div>
-        <div class="check"><input id="bpe" type="checkbox" /><span>启用浏览器代理</span></div>
-      </div>
-      <div class="actions"><button id="saveCaptcha">保存运行时配置</button></div>
-    </section>
+      <section class="panel">
+        <h2>运行概览</h2>
+        <div class="cards">
+          <div class="card"><div class="k">活跃会话</div><div id="statActive" class="v">-</div></div>
+          <div class="card"><div class="k">缓存会话</div><div id="statCached" class="v">-</div></div>
+          <div class="card"><div class="k">累计任务数</div><div id="statTotal" class="v">-</div></div>
+          <div class="card"><div class="k">启用 API Key 数</div><div id="statEnabledKey" class="v">-</div></div>
+          <div class="card"><div id="statThreadTotalLabel" class="k">总线程数</div><div id="statThreadTotal" class="v">-</div></div>
+          <div class="card"><div id="statThreadIdleLabel" class="k">空闲线程数</div><div id="statThreadIdle" class="v">-</div></div>
+        </div>
+        <div class="actions"><button id="refreshAllBtn" class="secondary">刷新数据</button><button id="logoutBtn" class="secondary">退出登录</button></div>
+      </section>
 
-    <section class="panel">
-      <h2>系统配置（setting.toml）</h2>
-      <div class="row">
-        <div class="field"><label>server.host</label><input id="sh" /></div>
-        <div class="field"><label>server.port</label><input id="sp" type="number" /></div>
-        <div class="field"><label>storage.db_path</label><input id="sdb" /></div>
-        <div class="field"><label>log.level</label><select id="ll"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>captcha.node_name</label><input id="cn" /></div>
-        <div class="field"><label>captcha.flow_timeout</label><input id="ft" type="number" /></div>
-        <div class="field"><label>captcha.upsample_timeout</label><input id="ut" type="number" /></div>
-        <div class="field"><label>captcha.session_ttl_seconds</label><input id="ttl" type="number" /></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>captcha.browser_score_dom_wait_seconds</label><input id="dom" type="number" step="0.1" /></div>
-        <div class="field"><label>captcha.browser_recaptcha_settle_seconds</label><input id="settle" type="number" step="0.1" /></div>
-        <div class="field"><label>captcha.browser_score_test_warmup_seconds</label><input id="warm" type="number" step="0.1" /></div>
-        <div class="check"><input id="bg" type="checkbox" /><span>browser_launch_background</span></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>cluster.role</label><select id="cr"><option value="standalone">standalone</option><option value="master">master</option><option value="subnode">subnode</option></select></div>
-        <div class="field"><label>cluster.master_base_url</label><input id="mb" /></div>
-        <div class="field"><label>cluster.master_cluster_key</label><input id="mk" /></div>
-        <div class="field"><label>cluster.node_public_base_url</label><input id="np" /></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>cluster.node_api_key</label><input id="nak" /></div>
-        <div class="field"><label>cluster.heartbeat_interval_seconds</label><input id="hb" type="number" /></div>
-        <div class="field"><label>cluster.node_weight</label><input id="w" type="number" /></div>
-        <div class="field"><label>cluster.node_max_concurrency</label><input id="nmc" type="number" /></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>cluster.master_node_stale_seconds</label><input id="stale" type="number" /></div>
-        <div class="field"><label>cluster.master_dispatch_timeout_seconds</label><input id="dto" type="number" /></div>
-      </div>
-      <div class="actions"><button id="saveSystem">保存系统配置</button></div>
-    </section>
+      <section class="panel">
+        <h2>管理员账号</h2>
+        <p class="panel-desc">只要修改密码成功，旧密码立即失效。</p>
+        <div class="grid">
+          <div class="field"><label>当前用户名</label><input id="adminCurrentUser" readonly /></div>
+          <div class="field"><label>新用户名</label><input id="adminNewUser" placeholder="可选" /></div>
+          <div class="field"><label>当前密码</label><input id="adminOldPassword" type="password" placeholder="必填" /></div>
+          <div class="field"><label>新密码</label><input id="adminNewPassword" type="password" placeholder="不少于 6 位" /></div>
+        </div>
+        <div class="actions"><button id="saveAdminBtn">保存管理员账号</button></div>
+      </section>
 
-    <section id="masterCluster" class="panel hidden">
-      <h2>主节点集群管理</h2>
-      <div class="row">
-        <div class="field"><label>Cluster Key</label><input id="ck" readonly /></div>
-        <div class="field"><label>Node Name</label><input id="cnode" readonly /></div>
-      </div>
-      <div class="actions"><button id="rotate" class="danger">轮换 Cluster Key</button><button id="rn" class="secondary">刷新节点</button></div>
-      <table><thead><tr><th>ID</th><th>Node</th><th>Healthy</th><th>Enabled</th><th>Weight</th><th>MaxC</th><th>Last Heartbeat</th><th>操作</th></tr></thead><tbody id="nodes"></tbody></table>
-    </section>
+      <section class="panel">
+        <h2>系统配置（setting.toml）</h2>
+        <p class="panel-desc">按当前角色显示必需字段。主节点不会显示子节点字段，子节点不会显示主节点字段。</p>
 
-    <section id="masterKeys" class="panel hidden">
-      <h2>主节点 API Key 管理</h2>
-      <div class="row">
-        <div class="field"><label>新 key 名称</label><input id="kname" /></div>
-        <div class="field"><label>可用次数（空=不限）</label><input id="kquota" type="number" min="0" /></div>
-      </div>
-      <div class="actions"><button id="ckey">创建 API Key</button><button id="rk" class="secondary">刷新列表</button></div>
-      <div id="newKey" class="sub"></div>
-      <table><thead><tr><th>ID</th><th>名称</th><th>前缀</th><th>Enabled</th><th>剩余</th><th>已用</th><th>操作</th></tr></thead><tbody id="keys"></tbody></table>
-    </section>
+        <div class="grid">
+          <div class="field"><label>部署角色</label><select id="cfgRole"><option value="standalone">单机（standalone）</option><option value="master">主节点（master）</option><option value="subnode">子节点（subnode）</option></select><div class="hint">切换角色后，部分配置需重启服务生效。</div></div>
+          <div class="field"><label>节点名称</label><input id="cfgNodeName" /></div>
+          <div class="field"><label>监听地址</label><input id="cfgServerHost" /></div>
+          <div class="field"><label>监听端口</label><input id="cfgServerPort" type="number" min="1" max="65535" /></div>
+        </div>
 
-    <section class="panel">
-      <h2>调用日志</h2>
-      <div class="actions"><button id="rl" class="secondary">刷新日志</button></div>
-      <table><thead><tr><th>时间</th><th>session_id</th><th>project_id</th><th>action</th><th>status</th><th>error</th></tr></thead><tbody id="logs"></tbody></table>
-    </section>
+        <div class="grid">
+          <div class="field"><label>日志级别</label><select id="cfgLogLevel"><option value="DEBUG">DEBUG</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option><option value="CRITICAL">CRITICAL</option></select></div>
+          <div class="field"><label>流程超时（秒）</label><input id="cfgFlowTimeout" type="number" min="10" /></div>
+          <div class="field"><label>放大超时（秒）</label><input id="cfgUpsampleTimeout" type="number" min="10" /></div>
+          <div class="field"><label>会话保留时长（秒）</label><input id="cfgSessionTtl" type="number" min="60" /></div>
+        </div>
+
+        <div id="masterConfigPanel" class="hidden">
+          <div class="grid">
+            <div class="field"><label>子节点判定离线阈值（秒）</label><input id="cfgMasterNodeStale" type="number" min="10" /><div class="hint">超过该时长未心跳，主节点视其不可用。</div></div>
+            <div class="field"><label>主节点调度超时（秒）</label><input id="cfgMasterDispatchTimeout" type="number" min="5" /><div class="hint">主节点等待子节点响应的最长时间。</div></div>
+          </div>
+        </div>
+
+        <div id="subnodeConfigPanel" class="hidden">
+          <div class="grid">
+            <div class="field"><label>主节点地址</label><input id="cfgMasterBaseUrl" placeholder="http://master:8060" /></div>
+            <div class="field"><label>集群密钥（Cluster Key）</label><input id="cfgMasterClusterKey" placeholder="fcs_cluster_..." /></div>
+            <div class="field"><label>子节点对外地址</label><input id="cfgNodePublicUrl" placeholder="http://subnode:8060" /></div>
+            <div class="field"><label>子节点 API Key</label><input id="cfgNodeApiKey" placeholder="node_api_key_..." /></div>
+          </div>
+          <div class="grid">
+            <div class="field"><label>心跳间隔（秒）</label><input id="cfgHeartbeatSeconds" type="number" min="5" /></div>
+            <div class="field"><label>节点权重</label><input id="cfgNodeWeight" type="number" min="1" /></div>
+            <div class="field"><label>节点最大并发</label><input id="cfgNodeMaxConcurrency" type="number" min="1" /></div>
+          </div>
+        </div>
+
+        <details class="advanced">
+          <summary>高级参数（一般不用改）</summary>
+          <div class="grid">
+            <div class="field"><label>数据库文件路径</label><input id="cfgDbPath" /></div>
+            <div class="field"><label>浏览器后台启动</label><select id="cfgLaunchBg"><option value="true">启用</option><option value="false">关闭</option></select></div>
+            <div class="field"><label>DOM 等待秒数</label><input id="cfgDomWait" type="number" step="0.1" min="1" /></div>
+            <div class="field"><label>reCAPTCHA 稳定等待秒数</label><input id="cfgSettle" type="number" step="0.1" min="0" /></div>
+          </div>
+          <div class="grid"><div class="field"><label>分数测试预热秒数</label><input id="cfgWarmup" type="number" step="0.1" min="0" /></div></div>
+        </details>
+
+        <div class="actions"><button id="saveSystemBtn">保存系统配置</button></div>
+      </section>
+
+      <section id="runtimeConfigPanel" class="panel hidden">
+        <h2>运行时打码配置（数据库）</h2>
+        <p class="panel-desc">仅子节点/单机模式需要。主节点不执行本地浏览器打码，因此不会显示此区块。</p>
+        <div class="grid">
+          <div class="field"><label>浏览器并发数（browser_count）</label><input id="rtBrowserCount" type="number" min="1" /><div class="hint">建议先从 1 开始，确认稳定后再逐步提高。</div></div>
+          <div class="field"><label>浏览器代理池（browser_proxy_url）</label><textarea id="rtProxyUrl" placeholder="支持单条代理，或多条代理池。可用换行、逗号、分号分隔。"></textarea><div id="rtProxyPoolHint" class="hint">当前未配置代理池。</div></div>
+        </div>
+        <label class="checkbox-line"><input id="rtProxyEnabled" type="checkbox" /> 启用浏览器代理</label>
+        <div class="actions"><button id="saveRuntimeBtn">保存运行时配置</button></div>
+      </section>
+
+      <section id="masterClusterPanel" class="panel hidden">
+        <h2>主节点集群管理</h2>
+        <div class="grid">
+          <div class="field"><label>当前 Cluster Key</label><input id="clusterKey" readonly /></div>
+          <div class="field"><label>当前节点名称</label><input id="clusterNodeName" readonly /></div>
+        </div>
+        <div class="actions"><button id="rotateClusterKeyBtn" class="warn">轮换 Cluster Key</button><button id="refreshNodesBtn" class="secondary">刷新子节点列表</button></div>
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>节点名</th><th>健康</th><th>启用</th><th>总线程</th><th>空闲线程</th><th>调度上限</th><th>权重</th><th>最近心跳</th><th>操作</th></tr></thead><tbody id="clusterNodesTable"></tbody></table></div>
+      </section>
+
+      <section id="masterApiKeyPanel" class="panel hidden">
+        <h2>主节点 API Key 管理</h2>
+        <div class="grid">
+          <div class="field"><label>Key 名称</label><input id="newApiKeyName" placeholder="例如：flow2api-prod" /></div>
+          <div class="field"><label>可用次数（留空=不限）</label><input id="newApiKeyQuota" type="number" min="0" /></div>
+        </div>
+        <div class="actions"><button id="createApiKeyBtn">创建 API Key</button><button id="refreshApiKeyBtn" class="secondary">刷新 API Key 列表</button></div>
+        <div id="newApiKeyText" class="panel-desc"></div>
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>名称</th><th>Key 前缀</th><th>启用</th><th>剩余次数</th><th>已用次数</th><th>操作</th></tr></thead><tbody id="apiKeysTable"></tbody></table></div>
+      </section>
+
+      <section class="panel">
+        <h2>调用日志（最近 30 条）</h2>
+        <div class="actions"><button id="refreshLogsBtn" class="secondary">刷新日志</button></div>
+        <div class="table-wrap"><table><thead><tr><th>时间</th><th>会话 ID</th><th>项目 ID</th><th>动作</th><th>状态</th><th>错误原因</th></tr></thead><tbody id="logsTable"></tbody></table></div>
+      </section>
+    </div>
   </div>
-</div>
 
-<script>
-(() => {
-  const s = { token:"", role:"" };
-  const q = (id) => document.getElementById(id);
-  const flash = (m, ok=true) => { const e=q("flash"); e.className=`flash ${ok?"ok":"err"}`; e.textContent=m; e.style.display="block"; };
-  const clear = () => { const e=q("flash"); e.className="flash"; e.style.display="none"; e.textContent=""; };
-  const req = async (url, opt={}) => {
-    const headers = Object.assign({}, opt.headers||{});
-    if (s.token) headers.Authorization = `Bearer ${s.token}`;
-    if (opt.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-    const r = await fetch(url, { method: opt.method||"GET", headers, body: opt.body?JSON.stringify(opt.body):undefined });
-    let p = null; try { p = await r.json(); } catch(e) { p = null; }
-    if (!r.ok) throw new Error((p&&p.detail) ? p.detail : `HTTP ${r.status}`);
-    return p || {};
-  };
+  <script>
+    (() => {
+      const state = { token: "", role: "unknown" };
+      const roleTextMap = { master: "主节点（master）", subnode: "子节点（subnode）", standalone: "单机（standalone）", unknown: "未知" };
+      const q = (id) => document.getElementById(id);
+      const toInt = (v, d) => Number.isFinite(Number(v)) ? Math.floor(Number(v)) : d;
+      const toFloat = (v, d) => Number.isFinite(Number(v)) ? Number(v) : d;
 
-  const setRole = () => {
-    q("roleTag").textContent = s.role || "unknown";
-    const master = s.role === "master";
-    q("masterCluster").classList.toggle("hidden", !master);
-    q("masterKeys").classList.toggle("hidden", !master);
-  };
-
-  const loadProfile = async () => {
-    const r = await req("/api/admin/profile");
-    q("adminUser").value = r.profile?.username || "";
-  };
-
-  const loadStats = async () => {
-    const r = await req("/api/admin/stats");
-    q("s1").textContent = String(r.runtime?.active_sessions ?? "-");
-    q("s2").textContent = String(r.runtime?.cached_sessions ?? "-");
-    q("s3").textContent = String(r.db?.total_jobs ?? "-");
-    q("s4").textContent = String(r.db?.enabled_api_keys ?? "-");
-  };
-
-  const loadCaptcha = async () => {
-    const r = await req("/api/admin/captcha-config");
-    q("bc").value = r.browser_count ?? 1;
-    q("bpu").value = r.browser_proxy_url ?? "";
-    q("bpe").checked = !!r.browser_proxy_enabled;
-  };
-
-  const fillSystem = (c) => {
-    q("sh").value = c.server?.host ?? "";
-    q("sp").value = c.server?.port ?? "";
-    q("sdb").value = c.storage?.db_path ?? "";
-    q("ll").value = c.log?.level ?? "INFO";
-    q("cn").value = c.captcha?.node_name ?? "";
-    q("ft").value = c.captcha?.flow_timeout ?? "";
-    q("ut").value = c.captcha?.upsample_timeout ?? "";
-    q("ttl").value = c.captcha?.session_ttl_seconds ?? "";
-    q("dom").value = c.captcha?.browser_score_dom_wait_seconds ?? "";
-    q("settle").value = c.captcha?.browser_recaptcha_settle_seconds ?? "";
-    q("warm").value = c.captcha?.browser_score_test_warmup_seconds ?? "";
-    q("bg").checked = !!c.captcha?.browser_launch_background;
-    q("cr").value = c.cluster?.role ?? "standalone";
-    q("mb").value = c.cluster?.master_base_url ?? "";
-    q("mk").value = c.cluster?.master_cluster_key ?? "";
-    q("np").value = c.cluster?.node_public_base_url ?? "";
-    q("nak").value = c.cluster?.node_api_key ?? "";
-    q("hb").value = c.cluster?.heartbeat_interval_seconds ?? "";
-    q("w").value = c.cluster?.node_weight ?? "";
-    q("nmc").value = c.cluster?.node_max_concurrency ?? "";
-    q("stale").value = c.cluster?.master_node_stale_seconds ?? "";
-    q("dto").value = c.cluster?.master_dispatch_timeout_seconds ?? "";
-  };
-
-  const loadSystem = async () => {
-    const r = await req("/api/admin/system-config");
-    s.role = r.role || "unknown";
-    setRole();
-    fillSystem(r.config || {});
-    const keys = Object.keys(r.env_overrides || {});
-    if (!keys.length) { q("envWarn").style.display = "none"; q("envWarn").textContent = ""; }
-    else { q("envWarn").style.display = "block"; q("envWarn").textContent = `检测到环境变量覆盖：${keys.join(", ")}`; }
-  };
-
-  const loadClusterCfg = async () => {
-    const r = await req("/api/admin/cluster/config");
-    q("cnode").value = r.node_name || "";
-    q("ck").value = (s.role === "master") ? (r.cluster_key || "") : "(仅 master 可见)";
-  };
-
-  const loadLogs = async () => {
-    const r = await req("/api/admin/logs?limit=30&offset=0");
-    const b = q("logs"); b.innerHTML = "";
-    for (const it of (r.items || [])) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${it.created_at||"-"}</td><td>${it.session_id||"-"}</td><td>${it.project_id||"-"}</td><td>${it.action||"-"}</td><td>${it.status||"-"}</td><td>${it.error_reason||""}</td>`;
-      b.appendChild(tr);
-    }
-  };
-
-  const loadKeys = async () => {
-    if (s.role !== "master") return;
-    const r = await req("/api/admin/apikeys");
-    const b = q("keys"); b.innerHTML = "";
-    for (const it of (r.items || [])) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${it.id}</td><td><input data-id="${it.id}" data-k="name" value="${it.name||""}" /></td><td>${it.key_prefix||"-"}</td><td><input type="checkbox" data-id="${it.id}" data-k="enabled" ${it.enabled?"checked":""} /></td><td><input data-id="${it.id}" data-k="quota_remaining" value="${it.quota_remaining??""}" /></td><td>${it.quota_used??0}</td><td><button class="secondary" data-act="save-key" data-id="${it.id}">保存</button></td>`;
-      b.appendChild(tr);
-    }
-  };
-
-  const loadNodes = async () => {
-    if (s.role !== "master") return;
-    const r = await req("/api/admin/cluster/nodes");
-    const b = q("nodes"); b.innerHTML = "";
-    for (const it of (r.items || [])) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${it.id}</td><td>${it.node_name}</td><td>${it.healthy?"yes":"no"}</td><td><input type="checkbox" data-id="${it.id}" data-k="enabled" ${it.enabled?"checked":""} /></td><td><input data-id="${it.id}" data-k="weight" value="${it.weight??100}" /></td><td><input data-id="${it.id}" data-k="max_concurrency" value="${it.max_concurrency??1}" /></td><td>${it.last_heartbeat_at||"-"}</td><td><button class="secondary" data-act="save-node" data-id="${it.id}">保存</button></td>`;
-      b.appendChild(tr);
-    }
-  };
-
-  const loadAll = async () => { clear(); await loadProfile(); await loadStats(); await loadCaptcha(); await loadSystem(); await loadClusterCfg(); await loadLogs(); await loadKeys(); await loadNodes(); };
-
-  q("loginBtn").addEventListener("click", async () => {
-    clear();
-    try {
-      const r = await req("/api/admin/login", { method:"POST", body:{ username:q("u").value.trim(), password:q("p").value } });
-      s.token = r.token; s.role = r.role || "unknown"; setRole();
-      q("login").style.display = "none"; q("dash").style.display = "block";
-      await loadAll();
-      flash("登录成功");
-    } catch(e) { flash(`登录失败: ${e.message}`, false); }
-  });
-
-  q("logout").addEventListener("click", async () => {
-    try { if (s.token) await req("/api/admin/logout", { method:"POST" }); } catch(e) {}
-    s.token = ""; s.role = ""; q("dash").style.display = "none"; q("login").style.display = "block"; q("roleTag").textContent = "未登录"; flash("已退出登录");
-  });
-
-  q("refresh").addEventListener("click", async () => { try { await loadAll(); flash("已刷新"); } catch(e) { flash(`刷新失败: ${e.message}`, false); } });
-  q("rl").addEventListener("click", async () => { try { await loadLogs(); flash("日志已刷新"); } catch(e) { flash(`刷新日志失败: ${e.message}`, false); } });
-
-  q("saveAdmin").addEventListener("click", async () => {
-    try {
-      const body = { current_password:q("oldPwd").value, new_username:q("newUser").value.trim()||null, new_password:q("newPwd").value||null };
-      const r = await req("/api/admin/credentials", { method:"POST", body });
-      q("oldPwd").value = ""; q("newUser").value = ""; q("newPwd").value = ""; q("adminUser").value = r.profile?.username || q("adminUser").value;
-      flash(r.message || "管理员账号更新成功");
-    } catch(e) { flash(`更新失败: ${e.message}`, false); }
-  });
-
-  q("saveCaptcha").addEventListener("click", async () => {
-    try {
-      await req("/api/admin/captcha-config", { method:"POST", body:{ browser_count:Number(q("bc").value||1), browser_proxy_enabled:q("bpe").checked, browser_proxy_url:q("bpu").value.trim() } });
-      await loadStats();
-      flash("运行时打码配置已保存");
-    } catch(e) { flash(`保存失败: ${e.message}`, false); }
-  });
-
-  q("saveSystem").addEventListener("click", async () => {
-    try {
-      const body = {
-        server:{ host:q("sh").value.trim(), port:Number(q("sp").value) },
-        storage:{ db_path:q("sdb").value.trim() },
-        captcha:{ node_name:q("cn").value.trim(), browser_launch_background:q("bg").checked, browser_score_dom_wait_seconds:Number(q("dom").value), browser_recaptcha_settle_seconds:Number(q("settle").value), browser_score_test_warmup_seconds:Number(q("warm").value), flow_timeout:Number(q("ft").value), upsample_timeout:Number(q("ut").value), session_ttl_seconds:Number(q("ttl").value) },
-        log:{ level:q("ll").value },
-        cluster:{ role:q("cr").value, master_base_url:q("mb").value.trim(), master_cluster_key:q("mk").value.trim(), node_public_base_url:q("np").value.trim(), node_api_key:q("nak").value.trim(), heartbeat_interval_seconds:Number(q("hb").value), node_weight:Number(q("w").value), node_max_concurrency:Number(q("nmc").value), master_node_stale_seconds:Number(q("stale").value), master_dispatch_timeout_seconds:Number(q("dto").value) }
+      const showNotice = (m, kind = "ok") => { const e = q("notice"); e.className = `notice ${kind}`; e.textContent = m; };
+      const clearNotice = () => { const e = q("notice"); e.className = "notice"; e.textContent = ""; };
+      const setEnvNotice = (env = {}) => {
+        const keys = Object.keys(env || {});
+        const e = q("envNotice");
+        if (!keys.length) { e.className = "notice warn hidden"; e.textContent = ""; return; }
+        e.className = "notice warn";
+        e.textContent = `检测到环境变量覆盖：${keys.join("、")}。这些项可能无法通过页面直接改动。`;
       };
-      const r = await req("/api/admin/system-config", { method:"POST", body });
-      s.role = r.role || s.role; setRole(); fillSystem(r.config||{}); await loadClusterCfg(); await loadStats();
-      flash(r.message || "系统配置已保存");
-    } catch(e) { flash(`保存系统配置失败: ${e.message}`, false); }
-  });
 
-  q("rotate").addEventListener("click", async () => {
-    try { const r = await req("/api/admin/cluster/config/rotate-key", { method:"POST" }); q("ck").value = r.cluster_key || ""; flash("Cluster Key 已轮换"); }
-    catch(e){ flash(`轮换失败: ${e.message}`, false); }
-  });
+      const req = async (url, opt = {}) => {
+        const headers = Object.assign({}, opt.headers || {});
+        if (state.token) headers.Authorization = `Bearer ${state.token}`;
+        if (opt.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+        const r = await fetch(url, { method: opt.method || "GET", headers, body: opt.body ? JSON.stringify(opt.body) : undefined });
+        let p = null; try { p = await r.json(); } catch (_) { p = null; }
+        if (!r.ok) throw new Error((p && p.detail) ? p.detail : `HTTP ${r.status}`);
+        return p || {};
+      };
 
-  q("rn").addEventListener("click", async () => { try { await loadNodes(); flash("节点列表已刷新"); } catch(e){ flash(`刷新节点失败: ${e.message}`, false);} });
-  q("rk").addEventListener("click", async () => { try { await loadKeys(); flash("API Key 列表已刷新"); } catch(e){ flash(`刷新 API Key 失败: ${e.message}`, false);} });
+      const roleOfForm = () => q("cfgRole").value || state.role;
+      const applyRoleLayout = (role) => {
+        const real = role || "unknown";
+        q("roleBadge").textContent = `当前角色：${roleTextMap[real] || real}`;
+        const isMaster = real === "master";
+        const isSubnode = real === "subnode";
+        q("runtimeConfigPanel").classList.toggle("hidden", isMaster);
+        q("masterConfigPanel").classList.toggle("hidden", !isMaster);
+        q("subnodeConfigPanel").classList.toggle("hidden", !isSubnode);
+        q("masterClusterPanel").classList.toggle("hidden", !isMaster);
+        q("masterApiKeyPanel").classList.toggle("hidden", !isMaster);
+      };
 
-  q("ckey").addEventListener("click", async () => {
-    try {
-      const name = q("kname").value.trim(); if (!name) throw new Error("请填写 key 名称");
-      const quotaRaw = q("kquota").value.trim();
-      const r = await req("/api/admin/apikeys", { method:"POST", body:{ name, quota_remaining: quotaRaw===""?null:Number(quotaRaw) } });
-      q("newKey").textContent = `新建成功: ${r.api_key}`;
-      q("kname").value = ""; q("kquota").value = "";
-      await loadKeys();
-      flash("API Key 创建成功");
-    } catch(e) { flash(`创建失败: ${e.message}`, false); }
-  });
+      const renderGuide = (guide) => {
+        const panel = q("guidePanel");
+        if (!guide) { panel.classList.add("hidden"); return; }
+        panel.classList.remove("hidden");
+        const items = q("guideItems"); const steps = q("guideSteps");
+        items.innerHTML = ""; steps.innerHTML = "";
+        const roleText = roleTextMap[guide.role] || guide.role || "未知";
+        q("guideSummary").textContent = guide.is_first_deploy ? `当前为 ${roleText}，系统检测到首次部署关键项，请按下面步骤完成。` : `当前为 ${roleText}，基础配置已就绪。`;
+        const list = Array.isArray(guide.items) ? guide.items : [];
+        if (!list.length) { const li = document.createElement("li"); li.textContent = "未发现阻塞项。"; items.appendChild(li); }
+        else {
+          for (const it of list) {
+            const li = document.createElement("li");
+            const lv = String(it.level || "info").toLowerCase();
+            const lb = lv === "critical" ? "高风险" : (lv === "required" ? "必填" : "提示");
+            li.innerHTML = `<span class="guide-tag ${lv}">${lb}</span><strong>${it.title || "未命名项"}</strong>：${it.detail || ""}`;
+            items.appendChild(li);
+          }
+        }
+        for (const s of (Array.isArray(guide.next_steps) ? guide.next_steps : [])) { const li = document.createElement("li"); li.textContent = s; steps.appendChild(li); }
+      };
+      const fillSystemConfig = (cfg = {}) => {
+        q("cfgRole").value = cfg.cluster?.role || "standalone";
+        q("cfgNodeName").value = cfg.captcha?.node_name || "";
+        q("cfgServerHost").value = cfg.server?.host || "";
+        q("cfgServerPort").value = cfg.server?.port ?? 8060;
+        q("cfgLogLevel").value = cfg.log?.level || "INFO";
+        q("cfgFlowTimeout").value = cfg.captcha?.flow_timeout ?? 300;
+        q("cfgUpsampleTimeout").value = cfg.captcha?.upsample_timeout ?? 300;
+        q("cfgSessionTtl").value = cfg.captcha?.session_ttl_seconds ?? 7200;
+        q("cfgMasterNodeStale").value = cfg.cluster?.master_node_stale_seconds ?? 120;
+        q("cfgMasterDispatchTimeout").value = cfg.cluster?.master_dispatch_timeout_seconds ?? 45;
+        q("cfgMasterBaseUrl").value = cfg.cluster?.master_base_url || "";
+        q("cfgMasterClusterKey").value = cfg.cluster?.master_cluster_key || "";
+        q("cfgNodePublicUrl").value = cfg.cluster?.node_public_base_url || "";
+        q("cfgNodeApiKey").value = cfg.cluster?.node_api_key || "";
+        q("cfgHeartbeatSeconds").value = cfg.cluster?.heartbeat_interval_seconds ?? 15;
+        q("cfgNodeWeight").value = cfg.cluster?.node_weight ?? 100;
+        q("cfgNodeMaxConcurrency").value = cfg.cluster?.node_max_concurrency ?? 1;
+        q("cfgDbPath").value = cfg.storage?.db_path || "";
+        q("cfgLaunchBg").value = String(cfg.captcha?.browser_launch_background ?? true);
+        q("cfgDomWait").value = cfg.captcha?.browser_score_dom_wait_seconds ?? 25;
+        q("cfgSettle").value = cfg.captcha?.browser_recaptcha_settle_seconds ?? 3;
+        q("cfgWarmup").value = cfg.captcha?.browser_score_test_warmup_seconds ?? 12;
+        applyRoleLayout(roleOfForm());
+      };
 
-  document.addEventListener("click", async (ev) => {
-    const t = ev.target; if (!(t instanceof HTMLElement)) return;
-    if (t.dataset.act === "save-key") {
-      const id = Number(t.dataset.id);
-      try {
-        const name = document.querySelector(`input[data-id="${id}"][data-k="name"]`)?.value || "";
-        const enabled = !!document.querySelector(`input[data-id="${id}"][data-k="enabled"]`)?.checked;
-        const quota = document.querySelector(`input[data-id="${id}"][data-k="quota_remaining"]`)?.value || "";
-        await req(`/api/admin/apikeys/${id}`, { method:"PATCH", body:{ name:String(name).trim(), enabled, quota_remaining: quota===""?null:Number(quota) } });
-        await loadKeys();
-        flash(`API Key #${id} 已更新`);
-      } catch(e) { flash(`保存 API Key 失败: ${e.message}`, false); }
-    }
+      const fillRuntimeConfig = (cfg = {}) => {
+        q("rtBrowserCount").value = cfg.browser_count ?? 1;
+        q("rtProxyEnabled").checked = !!cfg.browser_proxy_enabled;
+        q("rtProxyUrl").value = cfg.browser_proxy_url || "";
+        const poolSize = Number(cfg.browser_proxy_pool_size || 0);
+        q("rtProxyPoolHint").textContent = poolSize > 0 ? `当前代理池条目：${poolSize}` : "当前未配置代理池。";
+      };
 
-    if (t.dataset.act === "save-node") {
-      const id = Number(t.dataset.id);
-      try {
-        const enabled = !!document.querySelector(`input[data-id="${id}"][data-k="enabled"]`)?.checked;
-        const weight = Number(document.querySelector(`input[data-id="${id}"][data-k="weight"]`)?.value || 100);
-        const maxc = Number(document.querySelector(`input[data-id="${id}"][data-k="max_concurrency"]`)?.value || 1);
-        await req(`/api/admin/cluster/nodes/${id}`, { method:"PATCH", body:{ enabled, weight, max_concurrency:maxc } });
-        await loadNodes();
-        flash(`节点 #${id} 已更新`);
-      } catch(e) { flash(`保存节点失败: ${e.message}`, false); }
-    }
-  });
-})();
-</script>
+      const fillClusterBase = (cfg = {}) => {
+        q("clusterNodeName").value = cfg.node_name || "";
+        q("clusterKey").value = cfg.cluster_key || "";
+      };
+
+      const collectSystemPayload = () => {
+        const role = roleOfForm();
+        const payload = {
+          server: { host: q("cfgServerHost").value.trim(), port: toInt(q("cfgServerPort").value, 8060) },
+          storage: { db_path: q("cfgDbPath").value.trim() },
+          captcha: {
+            node_name: q("cfgNodeName").value.trim(),
+            flow_timeout: toInt(q("cfgFlowTimeout").value, 300),
+            upsample_timeout: toInt(q("cfgUpsampleTimeout").value, 300),
+            session_ttl_seconds: toInt(q("cfgSessionTtl").value, 7200),
+            browser_launch_background: q("cfgLaunchBg").value === "true",
+            browser_score_dom_wait_seconds: toFloat(q("cfgDomWait").value, 25),
+            browser_recaptcha_settle_seconds: toFloat(q("cfgSettle").value, 3),
+            browser_score_test_warmup_seconds: toFloat(q("cfgWarmup").value, 12),
+          },
+          log: { level: q("cfgLogLevel").value },
+          cluster: { role },
+        };
+
+        if (role === "master") {
+          payload.cluster.master_node_stale_seconds = toInt(q("cfgMasterNodeStale").value, 120);
+          payload.cluster.master_dispatch_timeout_seconds = toInt(q("cfgMasterDispatchTimeout").value, 45);
+        }
+        if (role === "subnode") {
+          payload.cluster.master_base_url = q("cfgMasterBaseUrl").value.trim();
+          payload.cluster.master_cluster_key = q("cfgMasterClusterKey").value.trim();
+          payload.cluster.node_public_base_url = q("cfgNodePublicUrl").value.trim();
+          payload.cluster.node_api_key = q("cfgNodeApiKey").value.trim();
+          payload.cluster.heartbeat_interval_seconds = toInt(q("cfgHeartbeatSeconds").value, 15);
+          payload.cluster.node_weight = toInt(q("cfgNodeWeight").value, 100);
+          payload.cluster.node_max_concurrency = toInt(q("cfgNodeMaxConcurrency").value, 1);
+        }
+        if (role !== "subnode") {
+          delete payload.cluster.master_base_url;
+          delete payload.cluster.master_cluster_key;
+          delete payload.cluster.node_public_base_url;
+          delete payload.cluster.node_api_key;
+          delete payload.cluster.heartbeat_interval_seconds;
+          delete payload.cluster.node_weight;
+          delete payload.cluster.node_max_concurrency;
+        }
+        if (role !== "master") {
+          delete payload.cluster.master_node_stale_seconds;
+          delete payload.cluster.master_dispatch_timeout_seconds;
+        }
+        return payload;
+      };
+
+      const loadProfile = async () => {
+        const r = await req("/api/admin/profile");
+        q("adminCurrentUser").value = r.profile?.username || "";
+      };
+      const loadStats = async () => {
+        const r = await req("/api/admin/stats");
+        q("statActive").textContent = String(r.runtime?.active_sessions ?? "-");
+        q("statCached").textContent = String(r.runtime?.cached_sessions ?? "-");
+        q("statTotal").textContent = String(r.db?.jobs_total ?? "-");
+        q("statEnabledKey").textContent = String(r.db?.api_key_enabled_total ?? "-");
+        if (state.role === "master") {
+          q("statThreadTotalLabel").textContent = "集群总线程";
+          q("statThreadIdleLabel").textContent = "集群空闲线程";
+          q("statThreadTotal").textContent = String(r.cluster?.total_thread_capacity ?? "-");
+          q("statThreadIdle").textContent = String(r.cluster?.total_idle_capacity ?? "-");
+        } else {
+          q("statThreadTotalLabel").textContent = "本机总线程";
+          q("statThreadIdleLabel").textContent = "本机空闲线程";
+          q("statThreadTotal").textContent = String(r.runtime?.browser?.thread_total ?? "-");
+          q("statThreadIdle").textContent = String(r.runtime?.browser?.thread_idle ?? "-");
+        }
+      };
+      const loadSystem = async () => {
+        const r = await req("/api/admin/system-config");
+        state.role = r.role || "unknown";
+        fillSystemConfig(r.config || {});
+        setEnvNotice(r.env_overrides || {});
+        renderGuide(r.setup_guide || null);
+        applyRoleLayout(state.role);
+      };
+      const loadRuntime = async () => {
+        if (state.role === "master") return;
+        const r = await req("/api/admin/captcha-config");
+        fillRuntimeConfig(r || {});
+      };
+      const loadClusterConfig = async () => { const r = await req("/api/admin/cluster/config"); fillClusterBase(r || {}); };
+      const loadLogs = async () => {
+        const r = await req("/api/admin/logs?limit=30&offset=0");
+        const b = q("logsTable"); b.innerHTML = "";
+        for (const it of (r.items || [])) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${it.created_at || "-"}</td><td>${it.session_id || "-"}</td><td>${it.project_id || "-"}</td><td>${it.action || "-"}</td><td>${it.status || "-"}</td><td>${it.error_reason || ""}</td>`;
+          b.appendChild(tr);
+        }
+      };
+      const loadApiKeys = async () => {
+        if (state.role !== "master") return;
+        const r = await req("/api/admin/apikeys");
+        const b = q("apiKeysTable"); b.innerHTML = "";
+        for (const it of (r.items || [])) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${it.id}</td><td><input data-ak-id="${it.id}" data-ak-key="name" value="${it.name || ""}" /></td><td>${it.key_prefix || "-"}</td><td><input type="checkbox" data-ak-id="${it.id}" data-ak-key="enabled" ${it.enabled ? "checked" : ""} /></td><td><input data-ak-id="${it.id}" data-ak-key="quota_remaining" value="${it.quota_remaining ?? ""}" /></td><td>${it.quota_used ?? 0}</td><td><button class="secondary" data-action="save-api-key" data-id="${it.id}">保存</button></td>`;
+          b.appendChild(tr);
+        }
+      };
+      const loadClusterNodes = async () => {
+        if (state.role !== "master") return;
+        const r = await req("/api/admin/cluster/nodes");
+        const b = q("clusterNodesTable"); b.innerHTML = "";
+        for (const it of (r.items || [])) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${it.id}</td><td>${it.node_name || "-"}</td><td>${it.healthy ? "健康" : "异常"}</td><td><input type="checkbox" data-node-id="${it.id}" data-node-key="enabled" ${it.enabled ? "checked" : ""} /></td><td>${it.thread_total ?? it.max_concurrency ?? 1}</td><td>${it.thread_idle ?? "-"}</td><td><input data-node-id="${it.id}" data-node-key="max_concurrency" value="${it.max_concurrency ?? 1}" /></td><td><input data-node-id="${it.id}" data-node-key="weight" value="${it.weight ?? 100}" /></td><td>${it.last_heartbeat_at || "-"}</td><td><button class="secondary" data-action="save-node" data-id="${it.id}">保存</button></td>`;
+          b.appendChild(tr);
+        }
+      };
+      const loadAll = async () => { clearNotice(); await loadProfile(); await loadStats(); await loadSystem(); await loadClusterConfig(); await loadRuntime(); await loadLogs(); await loadApiKeys(); await loadClusterNodes(); };
+      q("loginBtn").addEventListener("click", async () => {
+        clearNotice();
+        try {
+          const r = await req("/api/admin/login", { method: "POST", body: { username: q("loginUsername").value.trim(), password: q("loginPassword").value } });
+          state.token = r.token; state.role = r.role || "unknown";
+          q("loginPanel").classList.add("hidden"); q("dashboard").style.display = "block";
+          await loadAll();
+          showNotice("登录成功，后台已加载。", "ok");
+        } catch (err) { showNotice(`登录失败：${err.message}`, "err"); }
+      });
+
+      q("logoutBtn").addEventListener("click", async () => {
+        try { if (state.token) await req("/api/admin/logout", { method: "POST" }); } catch (_) {}
+        state.token = ""; state.role = "unknown";
+        q("dashboard").style.display = "none"; q("loginPanel").classList.remove("hidden"); q("roleBadge").textContent = "当前角色：未登录"; clearNotice();
+      });
+      q("refreshAllBtn").addEventListener("click", async () => { try { await loadAll(); showNotice("全部数据已刷新。", "ok"); } catch (err) { showNotice(`刷新失败：${err.message}`, "err"); } });
+      q("refreshLogsBtn").addEventListener("click", async () => { try { await loadLogs(); showNotice("日志已刷新。", "ok"); } catch (err) { showNotice(`日志刷新失败：${err.message}`, "err"); } });
+      q("cfgRole").addEventListener("change", () => applyRoleLayout(roleOfForm()));
+
+      q("saveAdminBtn").addEventListener("click", async () => {
+        try {
+          const body = { current_password: q("adminOldPassword").value, new_username: q("adminNewUser").value.trim() || null, new_password: q("adminNewPassword").value || null };
+          const r = await req("/api/admin/credentials", { method: "POST", body });
+          q("adminOldPassword").value = ""; q("adminNewUser").value = ""; q("adminNewPassword").value = "";
+          q("adminCurrentUser").value = r.profile?.username || q("adminCurrentUser").value;
+          await loadSystem();
+          showNotice(r.message || "管理员账号已更新。", "ok");
+        } catch (err) { showNotice(`保存管理员账号失败：${err.message}`, "err"); }
+      });
+
+      q("saveSystemBtn").addEventListener("click", async () => {
+        try {
+          const payload = collectSystemPayload();
+          if (payload.cluster?.role === "subnode") {
+            const mustHave = [
+              ["主节点地址", payload.cluster.master_base_url],
+              ["集群密钥", payload.cluster.master_cluster_key],
+              ["子节点对外地址", payload.cluster.node_public_base_url],
+              ["子节点 API Key", payload.cluster.node_api_key],
+            ];
+            const missing = mustHave.filter((x) => !String(x[1] || "").trim()).map((x) => x[0]);
+            if (missing.length > 0) {
+              throw new Error(`子节点必填项缺失：${missing.join("、")}`);
+            }
+            const lowered = String(payload.cluster.node_public_base_url || "").toLowerCase();
+            if (lowered.includes("0.0.0.0") || lowered.includes("127.0.0.1") || lowered.includes("localhost")) {
+              throw new Error("子节点对外地址不能填 0.0.0.0 / 127.0.0.1 / localhost");
+            }
+          }
+
+          const r = await req("/api/admin/system-config", { method: "POST", body: payload });
+          state.role = r.role || roleOfForm();
+          fillSystemConfig(r.config || {}); renderGuide(r.setup_guide || null); setEnvNotice(r.env_overrides || {});
+          showNotice(r.restart_required ? `${r.message || "系统配置已保存"}；建议现在重启服务。` : (r.message || "系统配置已保存。"), r.restart_required ? "warn" : "ok");
+          await loadClusterConfig(); await loadStats(); if (state.role !== "master") await loadRuntime(); if (state.role === "master") { await loadApiKeys(); await loadClusterNodes(); }
+        } catch (err) { showNotice(`保存系统配置失败：${err.message}`, "err"); }
+      });
+
+      q("saveRuntimeBtn").addEventListener("click", async () => {
+        try {
+          const enabled = q("rtProxyEnabled").checked; const proxyUrl = q("rtProxyUrl").value.trim();
+          if (enabled && !proxyUrl) throw new Error("已启用浏览器代理，但代理地址为空。");
+          await req("/api/admin/captcha-config", { method: "POST", body: { browser_count: toInt(q("rtBrowserCount").value, 1), browser_proxy_enabled: enabled, browser_proxy_url: proxyUrl } });
+          await loadStats();
+          showNotice("运行时打码配置已保存。", "ok");
+        } catch (err) { showNotice(`保存运行时配置失败：${err.message}`, "err"); }
+      });
+
+      q("rotateClusterKeyBtn").addEventListener("click", async () => {
+        try { const r = await req("/api/admin/cluster/config/rotate-key", { method: "POST" }); q("clusterKey").value = r.cluster_key || ""; showNotice("Cluster Key 已轮换，请同步更新所有子节点。", "warn"); }
+        catch (err) { showNotice(`轮换失败：${err.message}`, "err"); }
+      });
+      q("refreshNodesBtn").addEventListener("click", async () => { try { await loadClusterNodes(); showNotice("子节点列表已刷新。", "ok"); } catch (err) { showNotice(`刷新子节点失败：${err.message}`, "err"); } });
+      q("refreshApiKeyBtn").addEventListener("click", async () => { try { await loadApiKeys(); showNotice("API Key 列表已刷新。", "ok"); } catch (err) { showNotice(`刷新 API Key 失败：${err.message}`, "err"); } });
+
+      q("createApiKeyBtn").addEventListener("click", async () => {
+        try {
+          const name = q("newApiKeyName").value.trim();
+          if (!name) throw new Error("请填写 Key 名称。");
+          const quotaRaw = q("newApiKeyQuota").value.trim();
+          const r = await req("/api/admin/apikeys", { method: "POST", body: { name, quota_remaining: quotaRaw === "" ? null : toInt(quotaRaw, 0) } });
+          q("newApiKeyText").textContent = `新 Key（仅显示一次）：${r.api_key || ""}`;
+          q("newApiKeyName").value = ""; q("newApiKeyQuota").value = "";
+          await loadApiKeys(); await loadSystem();
+          showNotice("API Key 创建成功。", "ok");
+        } catch (err) { showNotice(`创建 API Key 失败：${err.message}`, "err"); }
+      });
+
+      document.addEventListener("click", async (event) => {
+        const target = event.target; if (!(target instanceof HTMLElement)) return;
+        if (target.dataset.action === "save-api-key") {
+          const id = Number(target.dataset.id);
+          try {
+            const nameEl = document.querySelector(`input[data-ak-id="${id}"][data-ak-key="name"]`);
+            const enabledEl = document.querySelector(`input[data-ak-id="${id}"][data-ak-key="enabled"]`);
+            const quotaEl = document.querySelector(`input[data-ak-id="${id}"][data-ak-key="quota_remaining"]`);
+            const name = String(nameEl?.value || "").trim(); const enabled = !!enabledEl?.checked; const quotaRaw = String(quotaEl?.value || "").trim();
+            await req(`/api/admin/apikeys/${id}`, { method: "PATCH", body: { name, enabled, quota_remaining: quotaRaw === "" ? null : toInt(quotaRaw, 0) } });
+            await loadApiKeys(); showNotice(`API Key #${id} 已保存。`, "ok");
+          } catch (err) { showNotice(`保存 API Key 失败：${err.message}`, "err"); }
+        }
+
+        if (target.dataset.action === "save-node") {
+          const id = Number(target.dataset.id);
+          try {
+            const enabledEl = document.querySelector(`input[data-node-id="${id}"][data-node-key="enabled"]`);
+            const weightEl = document.querySelector(`input[data-node-id="${id}"][data-node-key="weight"]`);
+            const maxEl = document.querySelector(`input[data-node-id="${id}"][data-node-key="max_concurrency"]`);
+            await req(`/api/admin/cluster/nodes/${id}`, { method: "PATCH", body: { enabled: !!enabledEl?.checked, weight: toInt(weightEl?.value, 100), max_concurrency: toInt(maxEl?.value, 1) } });
+            await loadClusterNodes(); showNotice(`子节点 #${id} 已保存。`, "ok");
+          } catch (err) { showNotice(`保存子节点失败：${err.message}`, "err"); }
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
