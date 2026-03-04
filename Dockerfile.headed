@@ -23,10 +23,7 @@ RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt \
     && python -m playwright install --with-deps chromium
 
 COPY . .
-COPY docker/entrypoint.headed.sh /usr/local/bin/entrypoint.headed.sh
-RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.headed.sh \
-    && chmod +x /usr/local/bin/entrypoint.headed.sh
 
 EXPOSE 8060
 
-CMD ["/usr/local/bin/entrypoint.headed.sh"]
+CMD ["/bin/bash", "-lc", "Xvfb \"${DISPLAY}\" -screen 0 \"${XVFB_WHD}\" -ac +extension RANDR >/tmp/xvfb.log 2>&1 & fluxbox >/tmp/fluxbox.log 2>&1 & exec python main.py"]

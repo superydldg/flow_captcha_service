@@ -204,3 +204,17 @@ docker pull ghcr.io/genz27/flow_captcha_service-headed:latest
 - `docker run / docker compose up`：需要按角色配置环境变量
 
 如果仓库/包是私有，请先使用带 `read:packages` 权限的 PAT 登录 GHCR。
+
+---
+
+## 常见问题
+
+### `exec /usr/local/bin/entrypoint.headed.sh: exec format error`
+
+排查顺序：
+
+1. 确认机器架构（你是 `x86_64/amd64`）
+2. 确认拉到的是新镜像（重新 `docker pull`）
+3. 删除旧 tag 本地缓存后再拉取并重启容器
+
+本仓库已将有头镜像启动方式改为内联 `bash` 启动流程，不再依赖脚本文件执行，可避免该错误。
