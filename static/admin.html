@@ -124,6 +124,18 @@
             <div class="field"><label>DOM 等待秒数</label><input id="cfgDomWait" type="number" step="0.1" min="1" /></div>
             <div class="field"><label>reCAPTCHA 稳定等待秒数</label><input id="cfgSettle" type="number" step="0.1" min="0" /></div>
           </div>
+          <div class="grid">
+            <div class="field"><label>页面加载阶段</label><select id="cfgGotoWaitUntil"><option value="domcontentloaded">domcontentloaded（推荐）</option><option value="load">load（完整）</option><option value="networkidle">networkidle（最慢）</option><option value="commit">commit（最快）</option></select></div>
+            <div class="field"><label>页面加载超时（毫秒）</label><input id="cfgGotoTimeoutMs" type="number" min="5000" max="60000" step="1000" /></div>
+            <div class="field"><label>grecaptcha 等待超时（毫秒）</label><input id="cfgGrecaptchaTimeoutMs" type="number" min="5000" max="30000" step="500" /></div>
+            <div class="field"><label>reload/clr 网络等待（秒）</label><input id="cfgRecaptchaNetWait" type="number" step="0.1" min="2" max="30" /></div>
+          </div>
+          <div class="grid">
+            <div class="field"><label>允许 clr 软等待</label><select id="cfgRecaptchaSoftWait"><option value="true">启用（推荐）</option><option value="false">关闭（严格）</option></select></div>
+            <div class="field"><label>强制要求 clr 成功</label><select id="cfgRecaptchaRequireClr"><option value="false">关闭（推荐）</option><option value="true">启用（更严格）</option></select></div>
+            <div class="field"><label>启用自适应稳定等待</label><select id="cfgAdaptiveSettle"><option value="true">启用（推荐）</option><option value="false">关闭</option></select></div>
+            <div class="field"><label>稳定等待最小秒数</label><input id="cfgMinSettle" type="number" step="0.1" min="0" max="10" /></div>
+          </div>
           <div class="grid"><div class="field"><label>分数测试预热秒数</label><input id="cfgWarmup" type="number" step="0.1" min="0" /></div></div>
         </details>
 
@@ -252,8 +264,20 @@
         q("cfgNodeMaxConcurrency").value = cfg.cluster?.node_max_concurrency ?? 1;
         q("cfgDbPath").value = cfg.storage?.db_path || "";
         q("cfgLaunchBg").value = String(cfg.captcha?.browser_launch_background ?? true);
+        {
+          const gotoWaitUntil = String(cfg.captcha?.browser_page_goto_wait_until || "domcontentloaded");
+          const allowed = ["load", "domcontentloaded", "networkidle", "commit"];
+          q("cfgGotoWaitUntil").value = allowed.includes(gotoWaitUntil) ? gotoWaitUntil : "domcontentloaded";
+        }
+        q("cfgGotoTimeoutMs").value = cfg.captcha?.browser_page_goto_timeout_ms ?? 20000;
+        q("cfgGrecaptchaTimeoutMs").value = cfg.captcha?.browser_grecaptcha_wait_timeout_ms ?? 12000;
         q("cfgDomWait").value = cfg.captcha?.browser_score_dom_wait_seconds ?? 25;
         q("cfgSettle").value = cfg.captcha?.browser_recaptcha_settle_seconds ?? 3;
+        q("cfgRecaptchaNetWait").value = cfg.captcha?.browser_recaptcha_network_wait_timeout_seconds ?? 8;
+        q("cfgRecaptchaSoftWait").value = String(cfg.captcha?.browser_recaptcha_soft_wait_enabled ?? true);
+        q("cfgRecaptchaRequireClr").value = String(cfg.captcha?.browser_recaptcha_require_clr ?? false);
+        q("cfgAdaptiveSettle").value = String(cfg.captcha?.browser_recaptcha_adaptive_settle_enabled ?? true);
+        q("cfgMinSettle").value = cfg.captcha?.browser_recaptcha_min_settle_seconds ?? 0.8;
         q("cfgWarmup").value = cfg.captcha?.browser_score_test_warmup_seconds ?? 12;
         applyRoleLayout(roleOfForm());
       };
@@ -282,8 +306,16 @@
             upsample_timeout: toInt(q("cfgUpsampleTimeout").value, 300),
             session_ttl_seconds: toInt(q("cfgSessionTtl").value, 7200),
             browser_launch_background: q("cfgLaunchBg").value === "true",
+            browser_page_goto_wait_until: q("cfgGotoWaitUntil").value,
+            browser_page_goto_timeout_ms: toInt(q("cfgGotoTimeoutMs").value, 20000),
+            browser_grecaptcha_wait_timeout_ms: toInt(q("cfgGrecaptchaTimeoutMs").value, 12000),
             browser_score_dom_wait_seconds: toFloat(q("cfgDomWait").value, 25),
             browser_recaptcha_settle_seconds: toFloat(q("cfgSettle").value, 3),
+            browser_recaptcha_network_wait_timeout_seconds: toFloat(q("cfgRecaptchaNetWait").value, 8),
+            browser_recaptcha_soft_wait_enabled: q("cfgRecaptchaSoftWait").value === "true",
+            browser_recaptcha_require_clr: q("cfgRecaptchaRequireClr").value === "true",
+            browser_recaptcha_adaptive_settle_enabled: q("cfgAdaptiveSettle").value === "true",
+            browser_recaptcha_min_settle_seconds: toFloat(q("cfgMinSettle").value, 0.8),
             browser_score_test_warmup_seconds: toFloat(q("cfgWarmup").value, 12),
           },
           log: { level: q("cfgLogLevel").value },

@@ -301,6 +301,31 @@ def _sanitize_system_config_updates(payload: Dict[str, Any]) -> Tuple[Dict[str, 
                 "captcha.browser_launch_background",
             )
             changed_keys.append("captcha.browser_launch_background")
+        if "browser_page_goto_wait_until" in captcha_cfg:
+            wait_until = str(captcha_cfg.get("browser_page_goto_wait_until") or "").strip().lower()
+            if wait_until not in {"load", "domcontentloaded", "networkidle", "commit"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="captcha.browser_page_goto_wait_until 仅支持 load/domcontentloaded/networkidle/commit",
+                )
+            section["browser_page_goto_wait_until"] = wait_until
+            changed_keys.append("captcha.browser_page_goto_wait_until")
+        if "browser_page_goto_timeout_ms" in captcha_cfg:
+            section["browser_page_goto_timeout_ms"] = _as_int(
+                captcha_cfg.get("browser_page_goto_timeout_ms"),
+                "captcha.browser_page_goto_timeout_ms",
+                5000,
+                60000,
+            )
+            changed_keys.append("captcha.browser_page_goto_timeout_ms")
+        if "browser_grecaptcha_wait_timeout_ms" in captcha_cfg:
+            section["browser_grecaptcha_wait_timeout_ms"] = _as_int(
+                captcha_cfg.get("browser_grecaptcha_wait_timeout_ms"),
+                "captcha.browser_grecaptcha_wait_timeout_ms",
+                5000,
+                30000,
+            )
+            changed_keys.append("captcha.browser_grecaptcha_wait_timeout_ms")
         if "browser_score_dom_wait_seconds" in captcha_cfg:
             section["browser_score_dom_wait_seconds"] = _as_float(
                 captcha_cfg.get("browser_score_dom_wait_seconds"),
@@ -317,6 +342,40 @@ def _sanitize_system_config_updates(payload: Dict[str, Any]) -> Tuple[Dict[str, 
                 30.0,
             )
             changed_keys.append("captcha.browser_recaptcha_settle_seconds")
+        if "browser_recaptcha_network_wait_timeout_seconds" in captcha_cfg:
+            section["browser_recaptcha_network_wait_timeout_seconds"] = _as_float(
+                captcha_cfg.get("browser_recaptcha_network_wait_timeout_seconds"),
+                "captcha.browser_recaptcha_network_wait_timeout_seconds",
+                2.0,
+                30.0,
+            )
+            changed_keys.append("captcha.browser_recaptcha_network_wait_timeout_seconds")
+        if "browser_recaptcha_soft_wait_enabled" in captcha_cfg:
+            section["browser_recaptcha_soft_wait_enabled"] = _as_bool(
+                captcha_cfg.get("browser_recaptcha_soft_wait_enabled"),
+                "captcha.browser_recaptcha_soft_wait_enabled",
+            )
+            changed_keys.append("captcha.browser_recaptcha_soft_wait_enabled")
+        if "browser_recaptcha_require_clr" in captcha_cfg:
+            section["browser_recaptcha_require_clr"] = _as_bool(
+                captcha_cfg.get("browser_recaptcha_require_clr"),
+                "captcha.browser_recaptcha_require_clr",
+            )
+            changed_keys.append("captcha.browser_recaptcha_require_clr")
+        if "browser_recaptcha_adaptive_settle_enabled" in captcha_cfg:
+            section["browser_recaptcha_adaptive_settle_enabled"] = _as_bool(
+                captcha_cfg.get("browser_recaptcha_adaptive_settle_enabled"),
+                "captcha.browser_recaptcha_adaptive_settle_enabled",
+            )
+            changed_keys.append("captcha.browser_recaptcha_adaptive_settle_enabled")
+        if "browser_recaptcha_min_settle_seconds" in captcha_cfg:
+            section["browser_recaptcha_min_settle_seconds"] = _as_float(
+                captcha_cfg.get("browser_recaptcha_min_settle_seconds"),
+                "captcha.browser_recaptcha_min_settle_seconds",
+                0.0,
+                10.0,
+            )
+            changed_keys.append("captcha.browser_recaptcha_min_settle_seconds")
         if "browser_score_test_warmup_seconds" in captcha_cfg:
             section["browser_score_test_warmup_seconds"] = _as_float(
                 captcha_cfg.get("browser_score_test_warmup_seconds"),
