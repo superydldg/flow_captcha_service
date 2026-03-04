@@ -127,17 +127,23 @@ python main.py
 docker compose -f docker-compose.headed.yml up -d --build
 ```
 
+使用浏览器镜像：`Dockerfile.headed`
+
 ### master
 
 ```bash
 docker compose -f docker-compose.cluster.master.yml up -d --build
 ```
 
+使用轻量镜像：`Dockerfile.master`
+
 ### subnode
 
 ```bash
 docker compose -f docker-compose.cluster.subnode.yml up -d --build
 ```
+
+使用浏览器镜像：`Dockerfile.headed`
 
 > `subnode` 启动前，需要在 `master` 管理接口获取 `cluster_key`，并写入
 > `FCS_CLUSTER_MASTER_CLUSTER_KEY`。
@@ -158,12 +164,20 @@ docker compose -f docker-compose.cluster.stack.yml up -d --build
 
 - 文件：`.github/workflows/publish-ghcr.yml`
 - 触发：`push main`、`push tag(v*)`、手动触发(`workflow_dispatch`)
-- 目标镜像：`ghcr.io/<owner>/flow_captcha_service`
+- 目标镜像：
+  - `ghcr.io/<owner>/flow_captcha_service-master`
+  - `ghcr.io/<owner>/flow_captcha_service-headed`
+
+镜像分工：
+
+- `flow_captcha_service-master`：轻量主节点镜像，不安装 Playwright/Chromium
+- `flow_captcha_service-headed`：有头浏览器镜像，用于 `subnode` / `standalone`
 
 典型拉取示例：
 
 ```bash
-docker pull ghcr.io/genz27/flow_captcha_service:latest
+docker pull ghcr.io/genz27/flow_captcha_service-master:latest
+docker pull ghcr.io/genz27/flow_captcha_service-headed:latest
 ```
 
 如果仓库/包是私有，请使用有 `read:packages` 权限的 PAT 登录后再拉取。

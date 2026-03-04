@@ -1,4 +1,4 @@
-name: Publish Docker Image to GHCR
+name: Publish Docker Images to GHCR
 
 on:
   workflow_dispatch:
@@ -15,6 +15,17 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: flow_captcha_service-master
+            dockerfile: Dockerfile.master
+            role: master
+          - image_name: flow_captcha_service-headed
+            dockerfile: Dockerfile.headed
+            role: headed
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,21 +47,24 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/flow_captcha_service
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
             type=sha,format=short
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image_name }}
+            org.opencontainers.image.description=flow_captcha_service ${{ matrix.role }} image
 
-      - name: Build and push
+      - name: Build and push (${{ matrix.role }})
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile.headed
+          file: ./${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image_name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}
