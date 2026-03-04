@@ -850,20 +850,13 @@ class TokenBrowser:
 
             page.on("response", handle_response)
             try:
-                await page.goto(
-                    page_url,
-                    wait_until=getattr(config, "browser_page_goto_wait_until", "domcontentloaded"),
-                    timeout=int(getattr(config, "browser_page_goto_timeout_ms", 20000)),
-                )
+                await page.goto(page_url, wait_until="load", timeout=30000)
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} page.goto 失败: {type(e).__name__}: {str(e)[:200]}")
                 return None
             
             try:
-                await page.wait_for_function(
-                    "typeof grecaptcha !== 'undefined'",
-                    timeout=int(getattr(config, "browser_grecaptcha_wait_timeout_ms", 12000)),
-                )
+                await page.wait_for_function("typeof grecaptcha !== 'undefined'", timeout=15000)
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} grecaptcha 未就绪: {type(e).__name__}: {str(e)[:200]}")
                 return None
@@ -885,59 +878,28 @@ class TokenBrowser:
                 timeout=30
             )
 
-            # 并发等待 enterprise/reload 与 enterprise/clr，避免顺序等待叠加耗时。
-            network_wait_timeout = float(
-                getattr(config, "browser_recaptcha_network_wait_timeout_seconds", 8) or 8
-            )
-            soft_wait_enabled = bool(getattr(config, "browser_recaptcha_soft_wait_enabled", True))
-            require_clr = bool(getattr(config, "browser_recaptcha_require_clr", False))
-            event_wait_started_at = time.monotonic()
+            # 按要求：等待 enterprise/reload 与 enterprise/clr 均出现并返回 200
             try:
-                await asyncio.wait_for(
-                    asyncio.gather(reload_ok_event.wait(), clr_ok_event.wait()),
-                    timeout=network_wait_timeout,
-                )
+                await asyncio.wait_for(reload_ok_event.wait(), timeout=12)
             except asyncio.TimeoutError:
-                pass
-
-            event_wait_elapsed = max(0.0, time.monotonic() - event_wait_started_at)
-            reload_ready = reload_ok_event.is_set()
-            clr_ready = clr_ok_event.is_set()
-
-            if not reload_ready:
                 debug_logger.log_warning(
                     f"[BrowserCaptcha] Token-{self.token_id} 等待 recaptcha enterprise/reload 200 超时"
                 )
                 return None
-            if require_clr and not clr_ready:
+
+            try:
+                await asyncio.wait_for(clr_ok_event.wait(), timeout=12)
+            except asyncio.TimeoutError:
                 debug_logger.log_warning(
-                    f"[BrowserCaptcha] Token-{self.token_id} 配置要求 enterprise/clr 200，但等待超时"
+                    f"[BrowserCaptcha] Token-{self.token_id} 等待 recaptcha enterprise/clr 200 超时"
                 )
                 return None
-            if not soft_wait_enabled and not (reload_ready and clr_ready):
-                debug_logger.log_warning(
-                    f"[BrowserCaptcha] Token-{self.token_id} 配置要求严格等待 reload+clr，但当前仅 reload={reload_ready}, clr={clr_ready}"
-                )
-                return None
-            if reload_ready and not clr_ready:
-                debug_logger.log_warning(
-                    f"[BrowserCaptcha] Token-{self.token_id} enterprise/clr 未就绪，按软等待策略继续"
-                )
 
-            # 自适应 settle：等待事件本身已经消耗的时间越多，额外等待越少。
-            base_settle_seconds = float(getattr(config, "browser_recaptcha_settle_seconds", 3) or 3)
-            post_wait_seconds = base_settle_seconds
-            adaptive_enabled = bool(getattr(config, "browser_recaptcha_adaptive_settle_enabled", True))
-            min_settle_seconds = float(getattr(config, "browser_recaptcha_min_settle_seconds", 0.8) or 0.8)
-            if adaptive_enabled and base_settle_seconds > 0:
-                factor = 0.35 if (reload_ready and clr_ready) else 0.6
-                target_settle_seconds = max(min_settle_seconds, base_settle_seconds * factor)
-                post_wait_seconds = max(0.0, target_settle_seconds - min(event_wait_elapsed, target_settle_seconds))
-
+            # 即使 reload/clr 都已返回 200，也额外等待几秒，确保 enterprise 请求链路完全稳定。
+            post_wait_seconds = float(getattr(config, "browser_recaptcha_settle_seconds", 3) or 3)
             if post_wait_seconds > 0:
                 debug_logger.log_info(
-                    f"[BrowserCaptcha] Token-{self.token_id} reload/clr 等待结束 (reload={reload_ready}, clr={clr_ready}, "
-                    f"event_wait={event_wait_elapsed:.2f}s)，额外等待 {post_wait_seconds:.2f}s 后返回 token"
+                    f"[BrowserCaptcha] Token-{self.token_id} reload/clr 已就绪，额外等待 {post_wait_seconds:.1f}s 后返回 token"
                 )
                 await asyncio.sleep(post_wait_seconds)
 

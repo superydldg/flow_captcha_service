@@ -62,16 +62,8 @@ class Config:
         "FCS_ADMIN_USERNAME",
         "FCS_ADMIN_PASSWORD",
         "FCS_BROWSER_LAUNCH_BACKGROUND",
-        "FCS_BROWSER_PAGE_GOTO_WAIT_UNTIL",
-        "FCS_BROWSER_PAGE_GOTO_TIMEOUT_MS",
-        "FCS_BROWSER_GRECAPTCHA_WAIT_TIMEOUT_MS",
         "FCS_BROWSER_SCORE_DOM_WAIT_SECONDS",
         "FCS_BROWSER_RECAPTCHA_SETTLE_SECONDS",
-        "FCS_BROWSER_RECAPTCHA_NETWORK_WAIT_TIMEOUT_SECONDS",
-        "FCS_BROWSER_RECAPTCHA_SOFT_WAIT_ENABLED",
-        "FCS_BROWSER_RECAPTCHA_REQUIRE_CLR",
-        "FCS_BROWSER_RECAPTCHA_ADAPTIVE_SETTLE_ENABLED",
-        "FCS_BROWSER_RECAPTCHA_MIN_SETTLE_SECONDS",
         "FCS_BROWSER_SCORE_TEST_WARMUP_SECONDS",
         "FCS_FLOW_TIMEOUT",
         "FCS_UPSAMPLE_TIMEOUT",
@@ -118,16 +110,8 @@ class Config:
                 "browser_proxy_enabled": False,
                 "browser_proxy_url": "",
                 "browser_launch_background": True,
-                "browser_page_goto_wait_until": "domcontentloaded",
-                "browser_page_goto_timeout_ms": 20000,
-                "browser_grecaptcha_wait_timeout_ms": 12000,
                 "browser_score_dom_wait_seconds": 25,
                 "browser_recaptcha_settle_seconds": 3,
-                "browser_recaptcha_network_wait_timeout_seconds": 8,
-                "browser_recaptcha_soft_wait_enabled": True,
-                "browser_recaptcha_require_clr": False,
-                "browser_recaptcha_adaptive_settle_enabled": True,
-                "browser_recaptcha_min_settle_seconds": 0.8,
                 "browser_score_test_warmup_seconds": 12,
                 "flow_timeout": 300,
                 "upsample_timeout": 300,
@@ -282,35 +266,6 @@ class Config:
         return _as_bool(self._get("captcha", "browser_launch_background", True), True)
 
     @property
-    def browser_page_goto_wait_until(self) -> str:
-        value = os.getenv("FCS_BROWSER_PAGE_GOTO_WAIT_UNTIL")
-        if value:
-            raw = str(value).strip().lower()
-        else:
-            raw = str(self._get("captcha", "browser_page_goto_wait_until", "domcontentloaded")).strip().lower()
-        if raw not in {"load", "domcontentloaded", "networkidle", "commit"}:
-            return "domcontentloaded"
-        return raw
-
-    @property
-    def browser_page_goto_timeout_ms(self) -> int:
-        value = os.getenv("FCS_BROWSER_PAGE_GOTO_TIMEOUT_MS")
-        try:
-            iv = int(value) if value else int(self._get("captcha", "browser_page_goto_timeout_ms", 20000))
-        except Exception:
-            iv = 20000
-        return max(5000, min(60000, iv))
-
-    @property
-    def browser_grecaptcha_wait_timeout_ms(self) -> int:
-        value = os.getenv("FCS_BROWSER_GRECAPTCHA_WAIT_TIMEOUT_MS")
-        try:
-            iv = int(value) if value else int(self._get("captcha", "browser_grecaptcha_wait_timeout_ms", 12000))
-        except Exception:
-            iv = 12000
-        return max(5000, min(30000, iv))
-
-    @property
     def browser_score_dom_wait_seconds(self) -> float:
         value = os.getenv("FCS_BROWSER_SCORE_DOM_WAIT_SECONDS")
         if value:
@@ -323,47 +278,6 @@ class Config:
         if value:
             return float(value)
         return float(self._get("captcha", "browser_recaptcha_settle_seconds", 3))
-
-    @property
-    def browser_recaptcha_network_wait_timeout_seconds(self) -> float:
-        value = os.getenv("FCS_BROWSER_RECAPTCHA_NETWORK_WAIT_TIMEOUT_SECONDS")
-        try:
-            fv = float(value) if value else float(
-                self._get("captcha", "browser_recaptcha_network_wait_timeout_seconds", 8)
-            )
-        except Exception:
-            fv = 8.0
-        return max(2.0, min(30.0, fv))
-
-    @property
-    def browser_recaptcha_soft_wait_enabled(self) -> bool:
-        value = os.getenv("FCS_BROWSER_RECAPTCHA_SOFT_WAIT_ENABLED")
-        if value:
-            return _as_bool(value, True)
-        return _as_bool(self._get("captcha", "browser_recaptcha_soft_wait_enabled", True), True)
-
-    @property
-    def browser_recaptcha_require_clr(self) -> bool:
-        value = os.getenv("FCS_BROWSER_RECAPTCHA_REQUIRE_CLR")
-        if value:
-            return _as_bool(value, False)
-        return _as_bool(self._get("captcha", "browser_recaptcha_require_clr", False), False)
-
-    @property
-    def browser_recaptcha_adaptive_settle_enabled(self) -> bool:
-        value = os.getenv("FCS_BROWSER_RECAPTCHA_ADAPTIVE_SETTLE_ENABLED")
-        if value:
-            return _as_bool(value, True)
-        return _as_bool(self._get("captcha", "browser_recaptcha_adaptive_settle_enabled", True), True)
-
-    @property
-    def browser_recaptcha_min_settle_seconds(self) -> float:
-        value = os.getenv("FCS_BROWSER_RECAPTCHA_MIN_SETTLE_SECONDS")
-        try:
-            fv = float(value) if value else float(self._get("captcha", "browser_recaptcha_min_settle_seconds", 0.8))
-        except Exception:
-            fv = 0.8
-        return max(0.0, min(10.0, fv))
 
     @property
     def browser_score_test_warmup_seconds(self) -> float:
