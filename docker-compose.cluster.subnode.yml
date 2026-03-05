@@ -9,6 +9,7 @@
     environment:
       - ALLOW_DOCKER_HEADED_CAPTCHA=true
       - DISPLAY=:99
+      - XVFB_WHD=1920x1080x24
       - FCS_SERVER_HOST=0.0.0.0
       - FCS_SERVER_PORT=8060
       - FCS_CLUSTER_ROLE=subnode
@@ -23,7 +24,7 @@
       - ./data:/app/data
       - ./config:/app/config
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8060/api/v1/health"]
+      test: ["CMD-SHELL", "xdpyinfo -display ${DISPLAY:-:99} >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8060/api/v1/health >/dev/null"]
       interval: 20s
       timeout: 5s
       retries: 5
