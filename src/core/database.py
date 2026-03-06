@@ -921,6 +921,35 @@ class Database:
             )
             await db.commit()
 
+    async def adjust_cluster_node_sessions(
+        self,
+        node_id: int,
+        *,
+        active_delta: int = 0,
+        cached_delta: int = 0,
+    ):
+        """在心跳之间，快速修正 master 侧节点会话计数，降低调度滞后。"""
+        if node_id <= 0:
+            return
+
+        active_delta = int(active_delta or 0)
+        cached_delta = int(cached_delta or 0)
+        if active_delta == 0 and cached_delta == 0:
+            return
+
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE cluster_nodes
+                SET active_sessions = MAX(active_sessions + ?, 0),
+                    cached_sessions = MAX(cached_sessions + ?, 0),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (active_delta, cached_delta, node_id),
+            )
+            await db.commit()
+
     async def record_cluster_node_heartbeat(
         self,
         node_id: int,

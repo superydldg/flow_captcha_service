@@ -437,7 +437,30 @@ class TokenBrowser:
         self._pending_release_events: List[asyncio.Event] = []
         self._pending_release_tasks: List[asyncio.Task] = []
         self._pending_release_lock = asyncio.Lock()
+        self._playwright = None
+        self._playwright_lock = asyncio.Lock()
+        Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
     
+    async def _get_shared_playwright(self):
+        async with self._playwright_lock:
+            if self._playwright is None:
+                self._playwright = await async_playwright().start()
+                debug_logger.log_info(f"[BrowserCaptcha] Token-{self.token_id} Playwright ???")
+            return self._playwright
+
+    async def close_shared_playwright(self):
+        async with self._playwright_lock:
+            playwright = self._playwright
+            self._playwright = None
+
+        if playwright:
+            try:
+                await playwright.stop()
+            except Exception as e:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] Token-{self.token_id} ?? Playwright ??: {type(e).__name__}: {str(e)[:200]}"
+                )
+
     async def _create_browser(self, token_proxy_url: Optional[str] = None) -> tuple:
         """创建新浏览器实例（新 UA），返回 (playwright, browser, context)"""
         import random
@@ -448,8 +471,9 @@ class TokenBrowser:
         viewport = {"width": width, "height": height}
         launch_in_background = bool(getattr(config, "browser_launch_background", True))
         
-        playwright = await async_playwright().start()
-        Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
+        playwright = await self._get_shared_playwright()
+        browser = None
+        context = None
         
         # 代理配置
         proxy_option = None
@@ -544,9 +568,9 @@ class TokenBrowser:
             debug_logger.log_error(f"[BrowserCaptcha] Token-{self.token_id} 启动浏览器失败: {type(e).__name__}: {str(e)[:200]}")
             # 确保清理已创建的对象
             try:
-                if playwright:
-                    await playwright.stop()
-            except: pass
+                await self._close_browser(None, browser, context)
+            except Exception:
+                pass
             raise
 
     async def _capture_page_fingerprint(self, page):
@@ -731,7 +755,7 @@ class TokenBrowser:
                 await browser.close()
         except: pass
         try:
-            if playwright:
+            if playwright and playwright is not self._playwright:
                 await playwright.stop()
         except: pass
 
@@ -1417,20 +1441,47 @@ class BrowserCaptchaService:
         # 并发限制 = 浏览器数量，不再硬编码限制
         self._token_semaphore = asyncio.Semaphore(self._browser_count)
         debug_logger.log_info(f"[BrowserCaptcha] 并发上限: {self._browser_count}")
+        await self._ensure_browser_slots()
     
+    async def _create_browser_slot_locked(self, browser_id: int) -> TokenBrowser:
+        browser = self._browsers.get(browser_id)
+        if browser is None:
+            user_data_dir = os.path.join(self.base_user_data_dir, f"browser_{browser_id}")
+            browser = TokenBrowser(browser_id, user_data_dir, db=self.db)
+            self._browsers[browser_id] = browser
+            debug_logger.log_info(f"[BrowserCaptcha] ??????? {browser_id}")
+        return browser
+
+    async def _ensure_browser_slots(self):
+        Path(self.base_user_data_dir).mkdir(parents=True, exist_ok=True)
+        async with self._browsers_lock:
+            for browser_id in range(self._browser_count):
+                await self._create_browser_slot_locked(browser_id)
+
     async def reload_browser_count(self):
-        """重新加载浏览器数量配置（用于配置更新后热重载）"""
+        """???????????????????????"""
         old_count = self._browser_count
         await self._load_browser_count()
-        
-        # 如果数量减少，移除多余的浏览器实例
+
+        removed_browsers = []
         if self._browser_count < old_count:
             async with self._browsers_lock:
                 for browser_id in list(self._browsers.keys()):
                     if browser_id >= self._browser_count:
-                        self._browsers.pop(browser_id)
-                        debug_logger.log_info(f"[BrowserCaptcha] 移除多余浏览器实例 {browser_id}")
-    
+                        browser = self._browsers.pop(browser_id)
+                        removed_browsers.append(browser)
+                        debug_logger.log_info(f"[BrowserCaptcha] ????????? {browser_id}")
+
+        for browser in removed_browsers:
+            try:
+                await browser.force_close_pending_browser()
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] ??????????????: {e}")
+            try:
+                await browser.close_shared_playwright()
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] ??????? Playwright ??: {e}")
+
     def _log_stats(self):
         total = self._stats["req_total"]
         gen_fail = self._stats["gen_fail"]
@@ -1444,15 +1495,10 @@ class BrowserCaptchaService:
 
     
     async def _get_or_create_browser(self, browser_id: int) -> TokenBrowser:
-        """获取或创建指定 ID 的浏览器实例"""
+        """??????? ID ??????"""
         async with self._browsers_lock:
-            if browser_id not in self._browsers:
-                user_data_dir = os.path.join(self.base_user_data_dir, f"browser_{browser_id}")
-                browser = TokenBrowser(browser_id, user_data_dir, db=self.db)
-                self._browsers[browser_id] = browser
-                debug_logger.log_info(f"[BrowserCaptcha] 创建浏览器实例 {browser_id}")
-            return self._browsers[browser_id]
-    
+            return await self._create_browser_slot_locked(browser_id)
+
     def _get_next_browser_id(self) -> int:
         """轮询获取下一个浏览器 ID"""
         browser_id = self._round_robin_index % self._browser_count
@@ -1694,9 +1740,19 @@ class BrowserCaptchaService:
             await browser.notify_generation_request_finished()
 
     async def remove_browser(self, browser_id: int):
+        browser = None
         async with self._browsers_lock:
-            if browser_id in self._browsers:
-                self._browsers.pop(browser_id)
+            browser = self._browsers.pop(browser_id, None)
+
+        if browser:
+            try:
+                await browser.force_close_pending_browser()
+            except Exception:
+                pass
+            try:
+                await browser.close_shared_playwright()
+            except Exception:
+                pass
 
     async def close(self):
         async with self._browsers_lock:
@@ -1708,7 +1764,11 @@ class BrowserCaptchaService:
                 await browser.force_close_pending_browser()
             except Exception:
                 pass
-            
+            try:
+                await browser.close_shared_playwright()
+            except Exception:
+                pass
+
     async def open_login_browser(self): return {"success": False, "error": "Not implemented"}
     async def create_browser_for_token(self, t, s=None): pass
     def get_stats(self): 

@@ -23,6 +23,10 @@ class ClusterManager:
         self._dispatch_lock = asyncio.Lock()
         # 记录短时调度预留槽位，用于覆盖“心跳上报滞后”窗口，避免瞬时超发。
         self._dispatch_reservations: Dict[int, List[float]] = {}
+        # 主节点本地维护的“已派发但未结束”路由会话，用于幂等回收 active_sessions。
+        self._active_routed_sessions: Dict[str, int] = {}
+        self._completed_routed_sessions: Dict[str, float] = {}
+        self._routed_sessions_lock = asyncio.Lock()
 
     async def start(self):
         if config.cluster_role == "subnode":
@@ -70,7 +74,19 @@ class ClusterManager:
                     if not child_session or not token:
                         raise RuntimeError("子节点响应缺少 session_id/token")
 
-                    result["session_id"] = f"{node['id']}:{child_session}"
+                    routed_session_id = f"{node['id']}:{child_session}"
+                    # solve 成功后，立即释放临时预留并同步 active_sessions，避免长时间“虚占容量”。
+                    await self._release_dispatch_slot(node_id)
+                    tracked = await self._mark_dispatch_session_started(routed_session_id, node_id)
+                    if tracked:
+                        try:
+                            await self.db.adjust_cluster_node_sessions(node_id, active_delta=1)
+                        except Exception as e:
+                            debug_logger.log_warning(
+                                f"[ClusterManager] adjust active_sessions(+1) failed node={node.get('node_name')}: {e}"
+                            )
+
+                    result["session_id"] = routed_session_id
                     result["node_name"] = node["node_name"]
                     return result
                 except Exception as e:
@@ -88,22 +104,42 @@ class ClusterManager:
     async def dispatch_finish(self, routed_session_id: str, status: str) -> Dict[str, Any]:
         node, child_session = await self._resolve_routed_session(routed_session_id)
         payload = {"status": status}
-        return await self._post_to_node(
+        result = await self._post_to_node(
             node=node,
             path=f"/api/v1/sessions/{child_session}/finish",
             json_payload=payload,
             timeout=20,
         )
+        node_id = int(node.get("id") or 0)
+        adjust_node_id = await self._mark_dispatch_session_finished(routed_session_id, fallback_node_id=node_id)
+        if adjust_node_id:
+            try:
+                await self.db.adjust_cluster_node_sessions(adjust_node_id, active_delta=-1)
+            except Exception as e:
+                debug_logger.log_warning(
+                    f"[ClusterManager] adjust active_sessions(-1) failed node={node.get('node_name')}: {e}"
+                )
+        return result
 
     async def dispatch_error(self, routed_session_id: str, error_reason: str) -> Dict[str, Any]:
         node, child_session = await self._resolve_routed_session(routed_session_id)
         payload = {"error_reason": error_reason}
-        return await self._post_to_node(
+        result = await self._post_to_node(
             node=node,
             path=f"/api/v1/sessions/{child_session}/error",
             json_payload=payload,
             timeout=20,
         )
+        node_id = int(node.get("id") or 0)
+        adjust_node_id = await self._mark_dispatch_session_finished(routed_session_id, fallback_node_id=node_id)
+        if adjust_node_id:
+            try:
+                await self.db.adjust_cluster_node_sessions(adjust_node_id, active_delta=-1)
+            except Exception as e:
+                debug_logger.log_warning(
+                    f"[ClusterManager] adjust active_sessions(-1) failed node={node.get('node_name')}: {e}"
+                )
+        return result
 
     async def dispatch_custom_score(self, request_payload: Dict[str, Any]) -> Dict[str, Any]:
         last_error = ""
@@ -305,6 +341,63 @@ class ClusterManager:
         heartbeat_window = max(10, int(config.cluster_heartbeat_interval_seconds) * 2)
         dispatch_window = max(10, int(config.cluster_master_dispatch_timeout_seconds) + 5)
         return float(max(heartbeat_window, dispatch_window))
+
+    def _completed_routed_session_window_seconds(self) -> float:
+        configured_ttl = max(120, int(getattr(config, "session_ttl_seconds", 1200) or 1200))
+        return float(max(600, min(configured_ttl * 2, 21600)))
+
+    @staticmethod
+    def _normalize_routed_session_id(routed_session_id: str) -> str:
+        return str(routed_session_id or "").strip()
+
+    def _prune_completed_routed_sessions_locked(self, now_ts: Optional[float] = None):
+        if not self._completed_routed_sessions:
+            return
+
+        now_ts = float(now_ts if now_ts is not None else time.time())
+        expire_before = now_ts - self._completed_routed_session_window_seconds()
+        stale_ids = [
+            session_id
+            for session_id, finished_ts in self._completed_routed_sessions.items()
+            if float(finished_ts) < expire_before
+        ]
+        for session_id in stale_ids:
+            self._completed_routed_sessions.pop(session_id, None)
+
+    async def _mark_dispatch_session_started(self, routed_session_id: str, node_id: int) -> bool:
+        normalized = self._normalize_routed_session_id(routed_session_id)
+        if not normalized or node_id <= 0:
+            return False
+
+        now_ts = time.time()
+        async with self._routed_sessions_lock:
+            self._prune_completed_routed_sessions_locked(now_ts)
+            self._active_routed_sessions[normalized] = node_id
+            self._completed_routed_sessions.pop(normalized, None)
+        return True
+
+    async def _mark_dispatch_session_finished(
+        self,
+        routed_session_id: str,
+        *,
+        fallback_node_id: int = 0,
+    ) -> int:
+        normalized = self._normalize_routed_session_id(routed_session_id)
+        if not normalized:
+            return int(fallback_node_id or 0)
+
+        now_ts = time.time()
+        async with self._routed_sessions_lock:
+            self._prune_completed_routed_sessions_locked(now_ts)
+            if normalized in self._completed_routed_sessions:
+                return 0
+
+            tracked_node_id = int(self._active_routed_sessions.pop(normalized, 0) or 0)
+            self._completed_routed_sessions[normalized] = now_ts
+
+        if tracked_node_id > 0:
+            return tracked_node_id
+        return int(fallback_node_id or 0)
 
     def _prune_dispatch_reservations_locked(self):
         if not self._dispatch_reservations:
