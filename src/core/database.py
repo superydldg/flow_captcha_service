@@ -713,10 +713,8 @@ class Database:
         if str(status or "").strip():
             filters.append("status = ?")
             params.append(str(status).strip())
-            params.append(str(status).strip())
         if str(project_id or "").strip():
             filters.append("project_id = ?")
-            params.append(str(project_id).strip())
             params.append(str(project_id).strip())
 
         where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
@@ -727,13 +725,16 @@ class Database:
                 f"""
                 SELECT *
                 FROM (
-                    SELECT id, portal_user_id, session_id, project_id, action, status, error_reason, duration_ms, created_at, 'portal' AS source
+                    SELECT id, portal_user_id, session_id, project_id, action, status, error_reason, duration_ms, created_at,
+                           NULL AS api_key_name, NULL AS api_key_prefix, 'portal' AS source
                     FROM portal_user_jobs
                     WHERE portal_user_id = ?
                     UNION ALL
-                    SELECT id, portal_user_id, session_id, project_id, action, status, error_reason, duration_ms, created_at, 'api' AS source
-                    FROM captcha_jobs
-                    WHERE portal_user_id = ?
+                    SELECT j.id, j.portal_user_id, j.session_id, j.project_id, j.action, j.status, j.error_reason, j.duration_ms, j.created_at,
+                           pk.name AS api_key_name, pk.key_prefix AS api_key_prefix, 'api' AS source
+                    FROM captcha_jobs j
+                    LEFT JOIN portal_user_api_keys pk ON pk.id = j.portal_api_key_id
+                    WHERE j.portal_user_id = ?
                 ) merged
                 {where_sql}
                 ORDER BY id DESC

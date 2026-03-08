@@ -204,8 +204,8 @@ function renderApiKeys() {
       <td>${escapeHtml(String(item.quota_used ?? 0))}</td>
       <td>${escapeHtml(formatDateTime(item.last_used_at))}</td>
       <td>
-        <button class="btn subtle mini-btn" type="button" data-action="toggle-api-key" data-id="${item.id}" data-enabled="${item.enabled ? 1 : 0}">${item.enabled ? "??" : "??"}</button>
-        <button class="btn ghost mini-btn" type="button" data-action="delete-api-key" data-id="${item.id}">???</button>
+        <button class="btn subtle mini-btn" type="button" data-action="toggle-api-key" data-id="${item.id}" data-enabled="${item.enabled ? 1 : 0}">${item.enabled ? "禁用" : "启用"}</button>
+        <button class="btn ghost mini-btn" type="button" data-action="delete-api-key" data-id="${item.id}">软删除</button>
       </td>
     </tr>
   `).join("");
@@ -218,7 +218,7 @@ function renderTransactions() {
   }
   const items = Array.isArray(state.workspace?.recent_transactions) ? state.workspace.recent_transactions : [];
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">???????</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">暂无消费记录。</td></tr>';
     return;
   }
   tbody.innerHTML = items.map((item) => {
@@ -270,7 +270,7 @@ function renderLogs(items) {
       <td><span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || "--")}</span></td>
       <td>${escapeHtml(item.project_id || "--")}</td>
       <td>${escapeHtml(item.action || "--")}</td>
-      <td>${escapeHtml(item.session_id || "--")}</td>
+      <td>${escapeHtml(item.api_key_prefix || item.api_key_name || "--")}</td>
       <td>${escapeHtml(item.error_reason || "-")}</td>
     </tr>
   `).join("");
@@ -520,6 +520,26 @@ function wireEvents() {
     }
   });
 
+  dom.byId("refreshApiKeysBtn")?.addEventListener("click", async () => {
+    try {
+      await loadWorkspace(true);
+      switchPage("apiKeys");
+      showNotice("apiKeyNotice", "API Key 列表已刷新。", "success");
+    } catch (error) {
+      showNotice("apiKeyNotice", error.message || "刷新 API Key 失败", "error");
+    }
+  });
+
+  dom.byId("createApiKeyForm")?.addEventListener("submit", async (event) => {
+    try {
+      await handleCreateApiKey(event);
+      switchPage("apiKeys");
+    } catch (error) {
+      showNotice("apiKeyNotice", error.message || "申请 API Key 失败", "error");
+    }
+  });
+
+
   dom.byId("redeemForm")?.addEventListener("submit", async (event) => {
     try {
       await handleRedeem(event);
@@ -558,5 +578,30 @@ async function bootstrap() {
     switchPage("dashboard");
   }
 }
+
+
+document.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  if (target.dataset.action === "toggle-api-key") {
+    try {
+      await handleApiKeyAction("toggle", Number(target.dataset.id), target.dataset.enabled === "1");
+    } catch (error) {
+      showNotice("apiKeyNotice", error.message || "更新 API Key 失败", "error");
+    }
+  }
+  if (target.dataset.action === "delete-api-key") {
+    const apiKeyId = Number(target.dataset.id);
+    const ok = window.confirm(`确定软删除 API Key #${apiKeyId} 吗？软删除后该 Key 会被禁用。`);
+    if (!ok) return;
+    try {
+      await handleApiKeyAction("delete", apiKeyId, false);
+    } catch (error) {
+      showNotice("apiKeyNotice", error.message || "软删除 API Key 失败", "error");
+    }
+  }
+});
 
 window.addEventListener("DOMContentLoaded", bootstrap);

@@ -4,7 +4,7 @@ import time
 import urllib.parse
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
 
 from ..core.auth import (
     issue_portal_user_token,
@@ -135,7 +135,7 @@ def _build_quickstart(base_url: str) -> Dict[str, Any]:
 
 def _resolve_register_location(request: Request, register_location: str) -> str:
     normalized_location = str(register_location or "").strip().lower()
-    allowed_locations = {"master-portal", "partner-channel", "private-cluster"}
+    allowed_locations = {"master-portal", "partner-channel", "private-cluster", "/", "/portal"}
     if normalized_location not in allowed_locations:
         raise HTTPException(status_code=400, detail="注册位置无效")
 
@@ -259,7 +259,7 @@ async def portal_user_register(request: PortalRegisterRequest, raw_request: Requ
 
     confirm_password = getattr(request, "confirm_password", None)
     if confirm_password and request.password != confirm_password:
-        raise HTTPException(status_code=400, detail="?????????")
+        raise HTTPException(status_code=400, detail="两次密码输入不一致")
     register_location = _resolve_register_location(raw_request, request.register_location)
     ok, message, user = await _db.create_portal_user(
         username=request.username,
@@ -314,8 +314,17 @@ async def portal_user_logout(response: Response, user: dict = Depends(verify_por
 
 
 @router.get("/auth/me")
-async def portal_user_me(user: dict = Depends(verify_portal_user_token)):
-    return await _build_portal_user_workspace_payload(int(user["id"]))
+async def portal_user_me(
+    authorization: Optional[str] = Header(default=None),
+    portal_session: Optional[str] = Cookie(default=None),
+):
+    try:
+        user = await verify_portal_user_token(authorization=authorization, portal_session=portal_session)
+    except HTTPException:
+        return {"success": True, "authenticated": False, "user": None}
+    payload = await _build_portal_user_workspace_payload(int(user["id"]))
+    payload["authenticated"] = True
+    return payload
 
 
 @router.get("/auth/check")
@@ -344,7 +353,7 @@ async def portal_check_username(username: str = Query(min_length=1, max_length=6
 @router.get("/user/api-keys")
 async def list_portal_user_api_keys(user: dict = Depends(verify_portal_user_token)):
     if _db is None:
-        raise HTTPException(status_code=500, detail="??????")
+        raise HTTPException(status_code=500, detail="服务未初始化")
     items = await _db.list_portal_user_api_keys(int(user["id"]))
     return {"success": True, "items": items}
 
@@ -355,9 +364,9 @@ async def create_portal_user_api_key(
     user: dict = Depends(verify_portal_user_token),
 ):
     if _db is None:
-        raise HTTPException(status_code=500, detail="??????")
+        raise HTTPException(status_code=500, detail="服务未初始化")
     raw_key, item = await _db.create_portal_user_api_key(int(user["id"]), request.name)
-    return {"success": True, "api_key": raw_key, "item": item, "message": "??????? API Key??????"}
+    return {"success": True, "api_key": raw_key, "item": item, "message": "仅本次返回完整 API Key，请立即保存"}
 
 
 @router.patch("/user/api-keys/{api_key_id}")
@@ -367,7 +376,7 @@ async def update_portal_user_api_key(
     user: dict = Depends(verify_portal_user_token),
 ):
     if _db is None:
-        raise HTTPException(status_code=500, detail="??????")
+        raise HTTPException(status_code=500, detail="服务未初始化")
     item = await _db.update_portal_user_api_key(
         api_key_id=api_key_id,
         portal_user_id=int(user["id"]),
@@ -375,28 +384,28 @@ async def update_portal_user_api_key(
         enabled=request.enabled,
     )
     if not item:
-        raise HTTPException(status_code=404, detail="API Key ???")
+        raise HTTPException(status_code=404, detail="API Key 不存在")
     return {"success": True, "item": item}
 
 
 @router.delete("/user/api-keys/{api_key_id}")
 async def soft_delete_portal_user_api_key(api_key_id: int, user: dict = Depends(verify_portal_user_token)):
     if _db is None:
-        raise HTTPException(status_code=500, detail="??????")
+        raise HTTPException(status_code=500, detail="服务未初始化")
     item = await _db.update_portal_user_api_key(
         api_key_id=api_key_id,
         portal_user_id=int(user["id"]),
         enabled=False,
     )
     if not item:
-        raise HTTPException(status_code=404, detail="API Key ???")
-    return {"success": True, "item": item, "message": f"API Key #{api_key_id} ?????????"}
+        raise HTTPException(status_code=404, detail="API Key 不存在")
+    return {"success": True, "item": item, "message": f"API Key #{api_key_id} 已软删除（已禁用）"}
 
 
 @router.get("/user/transactions")
 async def list_portal_user_transactions(user: dict = Depends(verify_portal_user_token)):
     if _db is None:
-        raise HTTPException(status_code=500, detail="??????")
+        raise HTTPException(status_code=500, detail="服务未初始化")
     items = await _db.list_portal_user_transactions(int(user["id"]), limit=50)
     return {"success": True, "items": items}
 
