@@ -478,23 +478,6 @@ POST /api/v1/custom-score
 
 1. 准备配置目录
 
-如果你只是单独启动这个 `master` compose：
-
-```bash
-mkdir -p data config
-cp config/setting_example.toml data/setting.toml
-```
-
-如果你准备和 `subnode` 在同一仓库目录同时启动，不要直接使用默认的
-`./data:/app/data`。请先把 compose 里的挂载改成：
-
-```yaml
-volumes:
-  - ./data/master:/app/data
-```
-
-然后再准备：
-
 ```bash
 mkdir -p data/master config
 cp config/setting_example.toml data/master/setting.toml
@@ -522,11 +505,7 @@ docker compose -f docker-compose.cluster.master.yml up -d --build
 
 - `master` 使用 `Dockerfile.master`
 - 不安装 `Playwright/Chromium`
-- 当前 compose 默认挂载是 `./data:/app/data`
-
-> 如果你打算在同一台机器、同一仓库目录里分别启动 `master`
-> 和 `subnode`，不要共用同一个 `./data` 目录。
-> 否则会共享数据库和运行状态。
+- 当前 compose 默认挂载是 `./data/master:/app/data`
 
 ### 2. Docker 部署 `subnode`
 
@@ -548,23 +527,6 @@ docker compose -f docker-compose.cluster.master.yml up -d --build
 #### 启动步骤
 
 1. 准备配置目录
-
-如果你只是单独启动这个 `subnode` compose：
-
-```bash
-mkdir -p data config
-cp config/setting_example.toml data/setting.toml
-```
-
-如果你准备和 `master` 在同一仓库目录同时启动，不要直接使用默认的
-`./data:/app/data`。请先把 compose 里的挂载改成：
-
-```yaml
-volumes:
-  - ./data/subnode:/app/data
-```
-
-然后再准备：
 
 ```bash
 mkdir -p data/subnode config

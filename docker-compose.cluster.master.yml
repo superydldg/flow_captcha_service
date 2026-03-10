@@ -14,7 +14,7 @@
       - FCS_NODE_NAME=master-1
       - FCS_LOG_LEVEL=INFO
     volumes:
-      - ./data:/app/data
+      - ./data/master:/app/data
       - ./config:/app/config
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8060/api/v1/health"]

@@ -22,7 +22,7 @@
       - FCS_CLUSTER_NODE_WEIGHT=100
       - FCS_CLUSTER_NODE_MAX_CONCURRENCY=0
     volumes:
-      - ./data:/app/data
+      - ./data/subnode:/app/data
       - ./config:/app/config
     healthcheck:
       test: ["CMD-SHELL", "xdpyinfo -display ${DISPLAY:-:99} >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8060/api/v1/health >/dev/null"]
