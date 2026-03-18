@@ -2352,12 +2352,42 @@ class Database:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """
-                SELECT j.id, j.session_id, j.api_key_id, k.name AS api_key_name, k.key_prefix,
-                       j.project_id, j.action, j.status, j.error_reason, j.duration_ms, j.created_at,
-                       j.portal_user_id, j.portal_api_key_id
-                FROM captcha_jobs j
-                LEFT JOIN service_api_keys k ON k.id = j.api_key_id
-                ORDER BY j.id DESC
+                SELECT *
+                FROM (
+                    SELECT
+                        j.id,
+                        j.session_id,
+                        j.api_key_id,
+                        k.name AS api_key_name,
+                        k.key_prefix,
+                        j.project_id,
+                        j.action,
+                        j.status,
+                        j.error_reason,
+                        j.duration_ms,
+                        j.created_at,
+                        j.portal_user_id,
+                        j.portal_api_key_id
+                    FROM captcha_jobs j
+                    LEFT JOIN service_api_keys k ON k.id = j.api_key_id
+                    UNION ALL
+                    SELECT
+                        p.id,
+                        p.session_id,
+                        NULL AS api_key_id,
+                        NULL AS api_key_name,
+                        NULL AS key_prefix,
+                        p.project_id,
+                        p.action,
+                        p.status,
+                        p.error_reason,
+                        p.duration_ms,
+                        p.created_at,
+                        p.portal_user_id,
+                        NULL AS portal_api_key_id
+                    FROM portal_user_jobs p
+                ) merged
+                ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
                 """,
                 (safe_limit, safe_offset),
@@ -2368,7 +2398,13 @@ class Database:
     async def count_job_logs(self) -> int:
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute("SELECT COUNT(*) AS total FROM captcha_jobs")
+            cursor = await db.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM captcha_jobs) +
+                    (SELECT COUNT(*) FROM portal_user_jobs) AS total
+                """
+            )
             row = await cursor.fetchone()
             return int(row["total"] or 0) if row else 0
 
