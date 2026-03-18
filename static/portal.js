@@ -387,6 +387,10 @@ function renderHeader() {
   if (headerUsernameEl) {
     headerUsernameEl.title = username;
   }
+  const headerTitleEl = dom.byId("headerTitle");
+  if (headerTitleEl) {
+    headerTitleEl.title = username;
+  }
 }
 
 function renderDashboard() {

@@ -387,6 +387,10 @@ body.portal-authenticated .app-main{
 }
 .app-brand h1{
   margin:0;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
   font-size:28px;
   line-height:1.08;
   letter-spacing:.01em;
@@ -647,6 +651,7 @@ td{font-size:14px;color:#e5eefb}
   .guest-auth-intro h1,.app-brand h1,.modal-head h2{font-size:30px}
   .stats-grid,.account-grid{grid-template-columns:1fr}
   .app-header{padding:0}
+  .app-brand h1{white-space:normal;overflow-wrap:anywhere}
   .workspace-stats{grid-template-columns:1fr}
   .app-userbar,.section-head,.filters-bar,.pager{flex-direction:column;align-items:stretch}
   .app-userbar{grid-template-columns:1fr}
