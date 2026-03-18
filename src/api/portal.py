@@ -104,12 +104,58 @@ def _mask_secret(value: str) -> str:
     return f"{text[:4]}{'*' * max(len(text) - 8, 4)}{text[-4:]}"
 
 
+def _sanitize_oidc_headers(headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+    sanitized: Dict[str, str] = {}
+    for key, value in (headers or {}).items():
+        normalized_key = str(key)
+        if normalized_key.lower() == "authorization":
+            sanitized[normalized_key] = _mask_secret(str(value or ""))
+        else:
+            sanitized[normalized_key] = str(value or "")
+    return sanitized
+
+
+def _sanitize_oidc_body(body: Optional[bytes]) -> str:
+    if not body:
+        return ""
+    text = body.decode("utf-8", errors="replace")
+    parsed = urllib.parse.parse_qs(text, keep_blank_values=True)
+    if not parsed:
+        return text
+    sanitized: Dict[str, str] = {}
+    for key, values in parsed.items():
+        value = values[-1] if values else ""
+        if key in {"client_secret", "code"}:
+            sanitized[key] = _mask_secret(value)
+        else:
+            sanitized[key] = value
+    return urllib.parse.urlencode(sanitized)
+
+
+def _sanitize_oidc_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if key in {"access_token", "refresh_token", "id_token", "client_secret", "code"}:
+                sanitized[key] = _mask_secret(str(value or ""))
+            else:
+                sanitized[key] = _sanitize_oidc_payload(value)
+        return sanitized
+    if isinstance(payload, list):
+        return [_sanitize_oidc_payload(item) for item in payload]
+    if isinstance(payload, str):
+        return payload
+    return payload
+
+
 async def _oidc_http_request(
     url: str,
     method: str = "GET",
     headers: Optional[Dict[str, str]] = None,
     body: Optional[bytes] = None,
 ) -> tuple[int, Any]:
+    sanitized_headers = _sanitize_oidc_headers(headers)
+    sanitized_body = _sanitize_oidc_body(body)
     req = urllib.request.Request(url=url, data=body, headers=headers or {}, method=method.upper())
 
     def _send() -> tuple[int, str, str]:
@@ -123,7 +169,19 @@ async def _oidc_http_request(
     try:
         status, content_type, text = await asyncio.to_thread(_send)
     except Exception as exc:
+        debug_logger.log_warning(
+            "[portal_oidc] upstream request failed "
+            f"method={method.upper()} url={url} headers={json.dumps(sanitized_headers, ensure_ascii=False)} "
+            f"body={sanitized_body} error={exc}"
+        )
         raise HTTPException(status_code=502, detail=f"OIDC 上游请求失败: {exc}")
+
+    debug_logger.log_info(
+        "[portal_oidc] upstream response "
+        f"method={method.upper()} url={url} status={status} content_type={content_type} "
+        f"headers={json.dumps(sanitized_headers, ensure_ascii=False)} body={sanitized_body} "
+        f"response={text}"
+    )
 
     lowered_content_type = content_type.lower()
     if "application/json" in lowered_content_type:
@@ -183,7 +241,9 @@ async def _request_oidc_token(
         debug_logger.log_info(
             "[portal_oidc] token exchange attempt "
             f"mode={attempt['name']} token_url={token_url} client_id={client_id} "
-            f"client_secret={masked_secret} redirect_uri={redirect_uri} code={masked_code}"
+            f"client_secret={masked_secret} redirect_uri={redirect_uri} code={masked_code} "
+            f"request_headers={json.dumps(_sanitize_oidc_headers(attempt['headers']), ensure_ascii=False)} "
+            f"request_body={_sanitize_oidc_body(attempt['body'])}"
         )
         try:
             token_status, token_payload = await _oidc_http_request(
@@ -201,10 +261,20 @@ async def _request_oidc_token(
 
         if 200 <= token_status < 300 and isinstance(token_payload, dict):
             access_token = str(token_payload.get("access_token") or "").strip()
+            debug_logger.log_info(
+                "[portal_oidc] token exchange response "
+                f"mode={attempt['name']} status={token_status} "
+                f"payload={json.dumps(_sanitize_oidc_payload(token_payload), ensure_ascii=False)}"
+            )
             if access_token:
                 return token_payload
             last_error_detail = "OIDC token 响应缺少 access_token"
         else:
+            debug_logger.log_warning(
+                "[portal_oidc] token exchange response "
+                f"mode={attempt['name']} status={token_status} "
+                f"payload={json.dumps(_sanitize_oidc_payload(token_payload), ensure_ascii=False)}"
+            )
             last_error_detail = (
                 f"OIDC token 响应异常 status={token_status}"
                 if not isinstance(token_payload, dict)
