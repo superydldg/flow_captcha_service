@@ -318,6 +318,9 @@ def _sanitize_system_config_updates(payload: Dict[str, Any]) -> Tuple[Dict[str, 
     portal_cfg = payload.get("portal")
     if isinstance(portal_cfg, dict):
         section = {}
+        if "public_base_url" in portal_cfg:
+            section["public_base_url"] = str(portal_cfg.get("public_base_url") or "").strip().rstrip("/")
+            changed_keys.append("portal.public_base_url")
         if "oidc_enabled" in portal_cfg:
             section["oidc_enabled"] = _as_bool(portal_cfg.get("oidc_enabled"), "portal.oidc_enabled")
             changed_keys.append("portal.oidc_enabled")
@@ -348,6 +351,7 @@ def _sanitize_system_config_updates(payload: Dict[str, Any]) -> Tuple[Dict[str, 
             changed_keys.append("portal.checkin_max_quota")
 
         effective_enabled = section.get("oidc_enabled", config.portal_oidc_enabled)
+        effective_public_base_url = section.get("public_base_url", config.portal_public_base_url)
         effective_base_url = section.get("oidc_base_url", config.portal_oidc_base_url)
         effective_client_id = section.get("oidc_client_id", config.portal_oidc_client_id)
         effective_client_secret = section.get("oidc_client_secret", config.portal_oidc_client_secret)
@@ -356,6 +360,8 @@ def _sanitize_system_config_updates(payload: Dict[str, Any]) -> Tuple[Dict[str, 
         effective_checkin_max = section.get("checkin_max_quota", config.portal_checkin_max_quota)
         if effective_enabled:
             missing_fields = []
+            if not effective_public_base_url:
+                missing_fields.append("portal.public_base_url")
             if not effective_base_url:
                 missing_fields.append("portal.oidc_base_url")
             if not effective_client_id:
@@ -364,6 +370,9 @@ def _sanitize_system_config_updates(payload: Dict[str, Any]) -> Tuple[Dict[str, 
                 missing_fields.append("portal.oidc_client_secret")
             if missing_fields:
                 raise HTTPException(status_code=400, detail=f"OIDC 已启用但缺少配置: {', '.join(missing_fields)}")
+            parsed_public = urllib.parse.urlparse(effective_public_base_url)
+            if parsed_public.scheme not in {"http", "https"} or not (parsed_public.netloc or "").strip():
+                raise HTTPException(status_code=400, detail="portal.public_base_url 格式无效")
             parsed = urllib.parse.urlparse(effective_base_url)
             if parsed.scheme not in {"http", "https"} or not (parsed.netloc or "").strip():
                 raise HTTPException(status_code=400, detail="portal.oidc_base_url 格式无效")
@@ -529,6 +538,7 @@ def _build_system_config_payload(admin_profile: Dict[str, Any]) -> Dict[str, Any
             "server": merged.get("server", {}),
             "storage": merged.get("storage", {}),
             "portal": {
+                "public_base_url": merged.get("portal", {}).get("public_base_url", ""),
                 "oidc_enabled": bool(merged.get("portal", {}).get("oidc_enabled", False)),
                 "oidc_base_url": merged.get("portal", {}).get("oidc_base_url", ""),
                 "oidc_client_id": merged.get("portal", {}).get("oidc_client_id", ""),

@@ -145,6 +145,7 @@ class Config:
                 "password": "admin",
             },
             "portal": {
+                "public_base_url": "",
                 "oidc_enabled": False,
                 "oidc_base_url": "",
                 "oidc_client_id": "",
@@ -312,6 +313,10 @@ class Config:
     @property
     def portal_oidc_enabled(self) -> bool:
         return _as_bool(self._get("portal", "oidc_enabled", False), False)
+
+    @property
+    def portal_public_base_url(self) -> str:
+        return str(self._get("portal", "public_base_url", "")).strip().rstrip("/")
 
     @property
     def portal_oidc_base_url(self) -> str:

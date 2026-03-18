@@ -1530,6 +1530,9 @@
           </div>
 
           <div class="grid">
+            <div class="field"><label>门户外部地址</label><input id="cfgPortalPublicBaseUrl" placeholder="https://re.lmmllm.com" /><div class="hint">用于生成 OAuth / OIDC 回调地址，建议填写用户实际访问的 HTTPS 域名。</div></div>
+          </div>
+          <div class="grid">
             <label class="checkbox-line"><input id="cfgOidcEnabled" type="checkbox" /> 启用门户 OAuth2 / OIDC 登录</label>
             <label class="checkbox-line"><input id="cfgOauthOnly" type="checkbox" /> 仅允许 OAuth / OIDC 登录</label>
           </div>
@@ -2091,6 +2094,7 @@
         q("cfgServerHost").value = cfg.server?.host || "";
         q("cfgServerPort").value = cfg.server?.port ?? 8060;
         q("cfgLogLevel").value = cfg.log?.level || "INFO";
+        q("cfgPortalPublicBaseUrl").value = cfg.portal?.public_base_url || "";
         q("cfgOidcEnabled").checked = !!cfg.portal?.oidc_enabled;
         q("cfgOauthOnly").checked = !!cfg.portal?.oauth_only;
         q("cfgOidcBaseUrl").value = cfg.portal?.oidc_base_url || "";
@@ -2139,6 +2143,7 @@
           server: { host: q("cfgServerHost").value.trim(), port: toInt(q("cfgServerPort").value, 8060) },
           storage: { db_path: q("cfgDbPath").value.trim() },
           portal: {
+            public_base_url: q("cfgPortalPublicBaseUrl").value.trim(),
             oidc_enabled: q("cfgOidcEnabled").checked,
             oauth_only: q("cfgOauthOnly").checked,
             oidc_base_url: q("cfgOidcBaseUrl").value.trim(),
@@ -2636,6 +2641,7 @@
           const payload = collectSystemPayload();
           if (payload.portal?.oidc_enabled) {
             const mustHave = [
+              ["门户外部地址", payload.portal.public_base_url],
               ["OIDC 基础地址", payload.portal.oidc_base_url],
               ["OIDC Client ID", payload.portal.oidc_client_id],
               ["OIDC Client Secret", payload.portal.oidc_client_secret],

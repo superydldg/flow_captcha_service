@@ -80,6 +80,9 @@ def _get_oidc_settings() -> Dict[str, Any]:
 
 
 def _build_portal_redirect_uri(request: Request) -> str:
+    public_base_url = config.portal_public_base_url
+    if public_base_url:
+        return f"{public_base_url}/api/portal/auth/oidc/callback"
     return f"{str(request.base_url).rstrip('/')}/api/portal/auth/oidc/callback"
 
 
