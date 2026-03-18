@@ -95,6 +95,15 @@ def _build_portal_redirect_uri(request: Request) -> str:
     return f"{str(request.base_url).rstrip('/')}/api/portal/auth/oidc/callback"
 
 
+def _mask_secret(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= 8:
+        return "*" * len(text)
+    return f"{text[:4]}{'*' * max(len(text) - 8, 4)}{text[-4:]}"
+
+
 async def _oidc_http_request(
     url: str,
     method: str = "GET",
@@ -140,6 +149,8 @@ async def _request_oidc_token(
         "code": code,
         "redirect_uri": redirect_uri,
     }
+    masked_code = _mask_secret(code)
+    masked_secret = _mask_secret(client_secret)
     auth_value = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
     attempts = [
         {
@@ -169,6 +180,11 @@ async def _request_oidc_token(
 
     last_error_detail = "OIDC token 响应无效"
     for attempt in attempts:
+        debug_logger.log_info(
+            "[portal_oidc] token exchange attempt "
+            f"mode={attempt['name']} token_url={token_url} client_id={client_id} "
+            f"client_secret={masked_secret} redirect_uri={redirect_uri} code={masked_code}"
+        )
         try:
             token_status, token_payload = await _oidc_http_request(
                 token_url,
