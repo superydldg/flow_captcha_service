@@ -91,10 +91,29 @@ class Config:
         "FCS_ADMIN_USERNAME",
         "FCS_ADMIN_PASSWORD",
         "FCS_BROWSER_LAUNCH_BACKGROUND",
+        "FCS_BROWSER_FINGERPRINT_POOL_EXTRA_COUNT",
+        "FCS_BROWSER_CUSTOM_PAGE_CACHE_MAX_PAGES",
+        "FCS_BROWSER_CUSTOM_PAGE_IDLE_TTL_SECONDS",
+        "FCS_BROWSER_PROJECT_AFFINITY_MAX_KEYS",
+        "FCS_BROWSER_PROJECT_AFFINITY_TTL_SECONDS",
         "FCS_BROWSER_SCORE_DOM_WAIT_SECONDS",
         "FCS_BROWSER_RECAPTCHA_SETTLE_SECONDS",
+        "FCS_BROWSER_STANDBY_TOKEN_POOL_ENABLED",
+        "FCS_BROWSER_STANDBY_TOKEN_TTL_SECONDS",
+        "FCS_BROWSER_STANDBY_TOKEN_POOL_DEPTH",
+        "FCS_BROWSER_STANDBY_BUCKET_MAX_COUNT",
+        "FCS_BROWSER_STANDBY_BUCKET_IDLE_TTL_SECONDS",
+        "FCS_BROWSER_STANDBY_REFILL_IDLE_SECONDS",
         "FCS_BROWSER_SCORE_TEST_WARMUP_SECONDS",
         "FCS_BROWSER_IDLE_TTL_SECONDS",
+        "FCS_BROWSER_RETRY_MAX_ATTEMPTS",
+        "FCS_BROWSER_RETRY_BACKOFF_SECONDS",
+        "FCS_BROWSER_EXECUTE_TIMEOUT_SECONDS",
+        "FCS_BROWSER_RELOAD_WAIT_TIMEOUT_SECONDS",
+        "FCS_BROWSER_CLR_WAIT_TIMEOUT_SECONDS",
+        "FCS_BROWSER_IDLE_REAPER_INTERVAL_SECONDS",
+        "FCS_BROWSER_REQUEST_FINISH_IMAGE_WAIT_SECONDS",
+        "FCS_BROWSER_REQUEST_FINISH_NON_IMAGE_WAIT_SECONDS",
         "FCS_FLOW_TIMEOUT",
         "FCS_UPSAMPLE_TIMEOUT",
         "FCS_SESSION_TTL_SECONDS",
@@ -181,14 +200,29 @@ class Config:
                 "browser_proxy_enabled": False,
                 "browser_proxy_url": "",
                 "browser_launch_background": True,
+                "browser_fingerprint_pool_extra_count": 100,
+                "browser_custom_page_cache_max_pages": 3,
+                "browser_custom_page_idle_ttl_seconds": 240,
+                "browser_project_affinity_max_keys": 0,
+                "browser_project_affinity_ttl_seconds": 1800,
                 "browser_score_dom_wait_seconds": 25,
                 "browser_recaptcha_settle_seconds": 3,
                 "browser_standby_token_pool_enabled": True,
                 "browser_standby_token_ttl_seconds": 45,
                 "browser_standby_token_pool_depth": 2,
+                "browser_standby_bucket_max_count": 0,
+                "browser_standby_bucket_idle_ttl_seconds": 0,
                 "browser_standby_refill_idle_seconds": 0.8,
                 "browser_score_test_warmup_seconds": 12,
                 "browser_idle_ttl_seconds": 600,
+                "browser_retry_max_attempts": 3,
+                "browser_retry_backoff_seconds": 1,
+                "browser_execute_timeout_seconds": 0,
+                "browser_reload_wait_timeout_seconds": 12,
+                "browser_clr_wait_timeout_seconds": 12,
+                "browser_idle_reaper_interval_seconds": 15,
+                "browser_request_finish_image_wait_seconds": 0,
+                "browser_request_finish_non_image_wait_seconds": 0,
                 "flow_timeout": 300,
                 "upsample_timeout": 300,
                 "session_ttl_seconds": 1200,
@@ -402,6 +436,65 @@ class Config:
         return _as_bool(self._get("captcha", "browser_launch_background", True), True)
 
     @property
+    def browser_fingerprint_pool_extra_count(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_FINGERPRINT_POOL_EXTRA_COUNT",
+                self._get("captcha", "browser_fingerprint_pool_extra_count", 100),
+            ),
+            100,
+            0,
+        )
+
+    @property
+    def browser_custom_page_cache_max_pages(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_CUSTOM_PAGE_CACHE_MAX_PAGES",
+                self._get("captcha", "browser_custom_page_cache_max_pages", 3),
+            ),
+            3,
+            1,
+        )
+
+    @property
+    def browser_custom_page_idle_ttl_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_CUSTOM_PAGE_IDLE_TTL_SECONDS")
+        if value:
+            try:
+                return max(30.0, float(value))
+            except Exception:
+                return 240.0
+        try:
+            return max(30.0, float(self._get("captcha", "browser_custom_page_idle_ttl_seconds", 240)))
+        except Exception:
+            return 240.0
+
+    @property
+    def browser_project_affinity_max_keys(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_PROJECT_AFFINITY_MAX_KEYS",
+                self._get("captcha", "browser_project_affinity_max_keys", 0),
+            ),
+            0,
+            0,
+        )
+
+    @property
+    def browser_project_affinity_ttl_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_PROJECT_AFFINITY_TTL_SECONDS")
+        if value:
+            try:
+                return max(60.0, float(value))
+            except Exception:
+                return 1800.0
+        try:
+            return max(60.0, float(self._get("captcha", "browser_project_affinity_ttl_seconds", 1800)))
+        except Exception:
+            return 1800.0
+
+    @property
     def browser_score_dom_wait_seconds(self) -> float:
         value = os.getenv("FCS_BROWSER_SCORE_DOM_WAIT_SECONDS")
         if value:
@@ -440,13 +533,44 @@ class Config:
         value = os.getenv("FCS_BROWSER_STANDBY_TOKEN_POOL_DEPTH")
         if value:
             try:
-                return max(0, min(2, int(value)))
+                return max(0, min(8, int(value)))
             except Exception:
                 return 2
         try:
-            return max(0, min(2, int(self._get("captcha", "browser_standby_token_pool_depth", 2))))
+            return max(0, min(8, int(self._get("captcha", "browser_standby_token_pool_depth", 2))))
         except Exception:
             return 2
+
+    @property
+    def browser_standby_bucket_max_count(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_STANDBY_BUCKET_MAX_COUNT",
+                self._get("captcha", "browser_standby_bucket_max_count", 0),
+            ),
+            0,
+            0,
+        )
+
+    @property
+    def browser_standby_bucket_idle_ttl_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_STANDBY_BUCKET_IDLE_TTL_SECONDS")
+        if value is not None:
+            text = str(value).strip()
+            if text == "":
+                return 0.0
+            try:
+                number = float(text)
+            except Exception:
+                return 0.0
+            if number <= 0:
+                return 0.0
+            return max(30.0, number)
+        try:
+            raw_value = self._get("captcha", "browser_standby_bucket_idle_ttl_seconds", 0)
+            return max(0.0, float(raw_value))
+        except Exception:
+            return 0.0
 
     @property
     def browser_standby_refill_idle_seconds(self) -> float:
@@ -480,6 +604,111 @@ class Config:
             return max(60, int(self._get("captcha", "browser_idle_ttl_seconds", 600)))
         except Exception:
             return 600
+
+    @property
+    def browser_retry_max_attempts(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_RETRY_MAX_ATTEMPTS",
+                self._get("captcha", "browser_retry_max_attempts", 3),
+            ),
+            3,
+            1,
+        )
+
+    @property
+    def browser_retry_backoff_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_RETRY_BACKOFF_SECONDS")
+        if value:
+            try:
+                return max(0.0, float(value))
+            except Exception:
+                return 1.0
+        try:
+            return max(0.0, float(self._get("captcha", "browser_retry_backoff_seconds", 1)))
+        except Exception:
+            return 1.0
+
+    @property
+    def browser_execute_timeout_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_EXECUTE_TIMEOUT_SECONDS")
+        if value is not None:
+            text = str(value).strip()
+            if text == "":
+                return 0.0
+            try:
+                number = float(text)
+            except Exception:
+                return 0.0
+            if number <= 0:
+                return 0.0
+            return max(5.0, number)
+        try:
+            raw_value = self._get("captcha", "browser_execute_timeout_seconds", 0)
+            return max(0.0, float(raw_value))
+        except Exception:
+            return 0.0
+
+    @property
+    def browser_reload_wait_timeout_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_RELOAD_WAIT_TIMEOUT_SECONDS")
+        if value:
+            try:
+                return max(1.0, float(value))
+            except Exception:
+                return 12.0
+        try:
+            return max(1.0, float(self._get("captcha", "browser_reload_wait_timeout_seconds", 12)))
+        except Exception:
+            return 12.0
+
+    @property
+    def browser_clr_wait_timeout_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_CLR_WAIT_TIMEOUT_SECONDS")
+        if value:
+            try:
+                return max(1.0, float(value))
+            except Exception:
+                return 12.0
+        try:
+            return max(1.0, float(self._get("captcha", "browser_clr_wait_timeout_seconds", 12)))
+        except Exception:
+            return 12.0
+
+    @property
+    def browser_idle_reaper_interval_seconds(self) -> float:
+        value = os.getenv("FCS_BROWSER_IDLE_REAPER_INTERVAL_SECONDS")
+        if value:
+            try:
+                return max(1.0, float(value))
+            except Exception:
+                return 15.0
+        try:
+            return max(1.0, float(self._get("captcha", "browser_idle_reaper_interval_seconds", 15)))
+        except Exception:
+            return 15.0
+
+    @property
+    def browser_request_finish_image_wait_seconds(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_REQUEST_FINISH_IMAGE_WAIT_SECONDS",
+                self._get("captcha", "browser_request_finish_image_wait_seconds", 0),
+            ),
+            0,
+            0,
+        )
+
+    @property
+    def browser_request_finish_non_image_wait_seconds(self) -> int:
+        return _bounded_int_or_fallback(
+            os.getenv(
+                "FCS_BROWSER_REQUEST_FINISH_NON_IMAGE_WAIT_SECONDS",
+                self._get("captcha", "browser_request_finish_non_image_wait_seconds", 0),
+            ),
+            0,
+            0,
+        )
 
     @property
     def flow_timeout(self) -> int:

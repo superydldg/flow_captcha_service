@@ -28,6 +28,7 @@ class Database:
         self.db_path = Path(db_path or config.db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = asyncio.Lock()
+        self._redis_job_index_lock = asyncio.Lock()
         self._redis_log_store: Optional[RedisLogStore] = None
         self._log_cleanup_task: Optional[asyncio.Task] = None
         self._last_log_vacuum_monotonic = 0.0
@@ -61,6 +62,9 @@ class Database:
             max_entries=config.log_redis_max_entries,
         )
         await self._redis_log_store.connect()
+        rebuilt = await self._redis_log_store.ensure_job_log_indexes()
+        if rebuilt:
+            debug_logger.log_info("[RedisLogStore] rebuilt legacy job log indexes on startup")
 
     async def close(self):
         if self._log_cleanup_task and not self._log_cleanup_task.done():
@@ -1506,6 +1510,14 @@ class Database:
     async def _get_all_redis_job_logs(self) -> List[Dict[str, Any]]:
         return await self._get_redis_job_logs(limit=None, offset=0)
 
+    async def _ensure_redis_job_log_indexes(self):
+        if self._redis_log_store is None:
+            return
+        async with self._redis_job_index_lock:
+            if await self._redis_log_store.job_log_indexes_ready():
+                return
+            await self._redis_log_store.ensure_job_log_indexes()
+
     async def _get_redis_job_logs_by_scope(
         self,
         *,
@@ -1526,17 +1538,12 @@ class Database:
                     offset=max(0, int(offset or 0)),
                 )
             return [item for item in (self._normalize_redis_job_log(raw) for raw in items) if item is not None]
-
-        fallback_items = [
-            entry
-            for entry in await self._get_all_redis_job_logs()
-            if str(entry.get("log_scope") or "captcha_jobs").strip() == normalized_scope
-        ]
-        if limit is None:
-            return fallback_items
-        safe_limit = max(1, int(limit or 1))
-        safe_offset = max(0, int(offset or 0))
-        return fallback_items[safe_offset:safe_offset + safe_limit]
+        if await self._redis_log_store.job_log_indexes_ready():
+            return []
+        await self._ensure_redis_job_log_indexes()
+        if await self._redis_log_store.job_log_scope_index_exists(scope=normalized_scope):
+            return await self._get_redis_job_logs_by_scope(scope=normalized_scope, limit=limit, offset=offset)
+        return []
 
     async def _count_redis_job_logs_by_scope(self, *, scope: str) -> int:
         if self._redis_log_store is None:
@@ -1544,11 +1551,12 @@ class Database:
         normalized_scope = str(scope or "captcha_jobs").strip() or "captcha_jobs"
         if await self._redis_log_store.job_log_scope_index_exists(scope=normalized_scope):
             return await self._redis_log_store.count_job_logs_by_scope(scope=normalized_scope)
-        return sum(
-            1
-            for entry in await self._get_all_redis_job_logs()
-            if str(entry.get("log_scope") or "captcha_jobs").strip() == normalized_scope
-        )
+        if await self._redis_log_store.job_log_indexes_ready():
+            return 0
+        await self._ensure_redis_job_log_indexes()
+        if await self._redis_log_store.job_log_scope_index_exists(scope=normalized_scope):
+            return await self._redis_log_store.count_job_logs_by_scope(scope=normalized_scope)
+        return 0
 
     async def _get_redis_job_logs_by_api_key(
         self,
@@ -1572,17 +1580,16 @@ class Database:
                     offset=max(0, int(offset or 0)),
                 )
             return [item for item in (self._normalize_redis_job_log(raw) for raw in items) if item is not None]
-
-        fallback_items = [
-            entry
-            for entry in await self._get_all_redis_job_logs()
-            if int(entry.get("api_key_id") or 0) == normalized_api_key_id
-        ]
-        if limit is None:
-            return fallback_items
-        safe_limit = max(1, int(limit or 1))
-        safe_offset = max(0, int(offset or 0))
-        return fallback_items[safe_offset:safe_offset + safe_limit]
+        if await self._redis_log_store.job_log_indexes_ready():
+            return []
+        await self._ensure_redis_job_log_indexes()
+        if await self._redis_log_store.job_log_api_key_index_exists(api_key_id=normalized_api_key_id):
+            return await self._get_redis_job_logs_by_api_key(
+                api_key_id=normalized_api_key_id,
+                limit=limit,
+                offset=offset,
+            )
+        return []
 
     async def _count_redis_job_logs_by_api_key(self, *, api_key_id: int) -> int:
         if self._redis_log_store is None:
@@ -1592,11 +1599,12 @@ class Database:
             return 0
         if await self._redis_log_store.job_log_api_key_index_exists(api_key_id=normalized_api_key_id):
             return await self._redis_log_store.count_job_logs_by_api_key(api_key_id=normalized_api_key_id)
-        return sum(
-            1
-            for entry in await self._get_all_redis_job_logs()
-            if int(entry.get("api_key_id") or 0) == normalized_api_key_id
-        )
+        if await self._redis_log_store.job_log_indexes_ready():
+            return 0
+        await self._ensure_redis_job_log_indexes()
+        if await self._redis_log_store.job_log_api_key_index_exists(api_key_id=normalized_api_key_id):
+            return await self._redis_log_store.count_job_logs_by_api_key(api_key_id=normalized_api_key_id)
+        return 0
 
     async def _get_redis_job_logs_by_portal_user(
         self,
@@ -1620,17 +1628,16 @@ class Database:
                     offset=max(0, int(offset or 0)),
                 )
             return [item for item in (self._normalize_redis_job_log(raw) for raw in items) if item is not None]
-
-        fallback_items = [
-            entry
-            for entry in await self._get_all_redis_job_logs()
-            if int(entry.get("portal_user_id") or 0) == normalized_portal_user_id
-        ]
-        if limit is None:
-            return fallback_items
-        safe_limit = max(1, int(limit or 1))
-        safe_offset = max(0, int(offset or 0))
-        return fallback_items[safe_offset:safe_offset + safe_limit]
+        if await self._redis_log_store.job_log_indexes_ready():
+            return []
+        await self._ensure_redis_job_log_indexes()
+        if await self._redis_log_store.job_log_portal_user_index_exists(portal_user_id=normalized_portal_user_id):
+            return await self._get_redis_job_logs_by_portal_user(
+                portal_user_id=normalized_portal_user_id,
+                limit=limit,
+                offset=offset,
+            )
+        return []
 
     async def _count_redis_job_logs_by_portal_user(self, *, portal_user_id: int) -> int:
         if self._redis_log_store is None:
@@ -1640,11 +1647,12 @@ class Database:
             return 0
         if await self._redis_log_store.job_log_portal_user_index_exists(portal_user_id=normalized_portal_user_id):
             return await self._redis_log_store.count_job_logs_by_portal_user(portal_user_id=normalized_portal_user_id)
-        return sum(
-            1
-            for entry in await self._get_all_redis_job_logs()
-            if int(entry.get("portal_user_id") or 0) == normalized_portal_user_id
-        )
+        if await self._redis_log_store.job_log_indexes_ready():
+            return 0
+        await self._ensure_redis_job_log_indexes()
+        if await self._redis_log_store.job_log_portal_user_index_exists(portal_user_id=normalized_portal_user_id):
+            return await self._redis_log_store.count_job_logs_by_portal_user(portal_user_id=normalized_portal_user_id)
+        return 0
 
     @staticmethod
     def _parse_timestamp(value: Any) -> Optional[datetime]:

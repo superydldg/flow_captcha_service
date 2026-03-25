@@ -110,11 +110,20 @@ class YesCaptchaApiTests(unittest.IsolatedAsyncioTestCase):
         self.raw_key, self.api_key = await self.db.create_api_key("yes-test", 5)
 
     async def asyncTearDown(self):
-        await self.client.aclose()
-        await self.task_manager.close()
-        await self.db.close()
-        self.temp_dir.cleanup()
-        self.env_patcher.stop()
+        try:
+            await self.client.aclose()
+            await self.task_manager.close()
+            await self.db.close()
+            for attempt in range(5):
+                try:
+                    self.temp_dir.cleanup()
+                    break
+                except (PermissionError, NotADirectoryError):
+                    if attempt >= 4:
+                        raise
+                    await asyncio.sleep(0.05)
+        finally:
+            self.env_patcher.stop()
 
     async def _poll_task_result(self, task_id: str, *, max_attempts: int = 20):
         payload = {}

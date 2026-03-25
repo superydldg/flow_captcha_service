@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
@@ -26,6 +27,7 @@ class RedisLogStore:
         self.key_prefix = str(key_prefix or "fcs").strip() or "fcs"
         self.max_entries = max(100, int(max_entries or 20000))
         self._client: Optional[Any] = None
+        self._job_log_index_lock = asyncio.Lock()
 
     def _key(self, suffix: str) -> str:
         return f"{self.key_prefix}:{suffix}"
@@ -145,23 +147,99 @@ class RedisLogStore:
     def _job_log_index_key_for_portal_user(self, portal_user_id: int) -> str:
         return f"logs:jobs:portal_user:{int(portal_user_id)}"
 
+    def _job_log_index_ready_key(self) -> str:
+        return "logs:jobs:indexes:ready:v1"
+
+    async def job_log_indexes_ready(self) -> bool:
+        return await self._list_exists(list_key=self._job_log_index_ready_key())
+
+    async def _set_job_log_indexes_ready(self):
+        client = await self._get_client()
+        await client.set(self._key(self._job_log_index_ready_key()), "1")
+
+    async def _job_log_index_keys(self) -> List[str]:
+        keys: List[str] = []
+        keys.extend(await self._scan_keys(pattern="logs:jobs:scope:*"))
+        keys.extend(await self._scan_keys(pattern="logs:jobs:api_key:*"))
+        keys.extend(await self._scan_keys(pattern="logs:jobs:portal_user:*"))
+        return keys
+
+    async def ensure_job_log_indexes(self, *, batch_size: int = 500) -> bool:
+        client = await self._get_client()
+        safe_batch_size = max(100, min(int(batch_size or 500), self.max_entries))
+        aggregate_key = self._key("logs:jobs")
+
+        async with self._job_log_index_lock:
+            if await self.job_log_indexes_ready():
+                return False
+
+            total = int(await client.llen(aggregate_key) or 0)
+            existing_index_keys = await self._job_log_index_keys()
+            if existing_index_keys:
+                await self._delete_keys(existing_index_keys)
+
+            if total <= 0:
+                await self._set_job_log_indexes_ready()
+                return False
+
+            for start in range(0, total, safe_batch_size):
+                stop = min(total - 1, start + safe_batch_size - 1)
+                raw_items = await client.lrange(aggregate_key, start, stop)
+                if not raw_items:
+                    continue
+
+                bucketed_entries: Dict[str, List[str]] = {}
+                for raw in raw_items:
+                    try:
+                        parsed = json.loads(str(raw))
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(parsed, dict):
+                        continue
+
+                    scope = str(parsed.get("log_scope") or "captcha_jobs").strip() or "captcha_jobs"
+                    scope_key = self._job_log_index_key_for_scope(scope)
+                    bucketed_entries.setdefault(scope_key, []).append(str(raw))
+
+                    api_key_id = int(parsed.get("api_key_id") or 0)
+                    if api_key_id > 0:
+                        api_key = self._job_log_index_key_for_api_key(api_key_id)
+                        bucketed_entries.setdefault(api_key, []).append(str(raw))
+
+                    portal_user_id = int(parsed.get("portal_user_id") or 0)
+                    if portal_user_id > 0:
+                        portal_key = self._job_log_index_key_for_portal_user(portal_user_id)
+                        bucketed_entries.setdefault(portal_key, []).append(str(raw))
+
+                if not bucketed_entries:
+                    continue
+
+                async with client.pipeline(transaction=True) as pipe:
+                    for list_key, entries in bucketed_entries.items():
+                        pipe.rpush(self._key(list_key), *entries)
+                    await pipe.execute()
+
+            await self._set_job_log_indexes_ready()
+            return True
+
     async def append_job_log(self, entry: Dict[str, Any]) -> Dict[str, Any]:
-        payload = dict(entry)
-        payload["id"] = int(payload.get("id") or await self._next_id("seq:jobs"))
-        payload["created_at"] = str(payload.get("created_at") or _utc_now_text())
-        scope = str(payload.get("log_scope") or "captcha_jobs").strip() or "captcha_jobs"
-        list_keys = ["logs:jobs", self._job_log_index_key_for_scope(scope)]
+        async with self._job_log_index_lock:
+            payload = dict(entry)
+            payload["id"] = int(payload.get("id") or await self._next_id("seq:jobs"))
+            payload["created_at"] = str(payload.get("created_at") or _utc_now_text())
+            scope = str(payload.get("log_scope") or "captcha_jobs").strip() or "captcha_jobs"
+            list_keys = ["logs:jobs", self._job_log_index_key_for_scope(scope)]
 
-        api_key_id = int(payload.get("api_key_id") or 0)
-        if api_key_id > 0:
-            list_keys.append(self._job_log_index_key_for_api_key(api_key_id))
+            api_key_id = int(payload.get("api_key_id") or 0)
+            if api_key_id > 0:
+                list_keys.append(self._job_log_index_key_for_api_key(api_key_id))
 
-        portal_user_id = int(payload.get("portal_user_id") or 0)
-        if portal_user_id > 0:
-            list_keys.append(self._job_log_index_key_for_portal_user(portal_user_id))
+            portal_user_id = int(payload.get("portal_user_id") or 0)
+            if portal_user_id > 0:
+                list_keys.append(self._job_log_index_key_for_portal_user(portal_user_id))
 
-        await self._append_payload_to_lists(payload=payload, list_keys=list_keys)
-        return payload
+            await self._append_payload_to_lists(payload=payload, list_keys=list_keys)
+            return payload
 
     async def list_job_logs(self, *, limit: int, offset: int) -> List[Dict[str, Any]]:
         safe_limit = max(1, int(limit or 1))
@@ -257,33 +335,48 @@ class RedisLogStore:
         aggregate_key = self._key("logs:jobs")
         captcha_key = self._key(self._job_log_index_key_for_scope("captcha_jobs"))
         portal_key = self._key(self._job_log_index_key_for_scope("portal_user_jobs"))
-        async with client.pipeline(transaction=True) as pipe:
-            pipe.llen(aggregate_key)
-            pipe.llen(captcha_key)
-            pipe.llen(portal_key)
-            counts = await pipe.execute()
+        ready_key = self._key(self._job_log_index_ready_key())
 
-        total = int(counts[0] or 0)
-        captcha_jobs = int(counts[1] or 0)
-        portal_user_jobs = int(counts[2] or 0)
+        async with self._job_log_index_lock:
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.llen(aggregate_key)
+                pipe.llen(captcha_key)
+                pipe.llen(portal_key)
+                pipe.exists(ready_key)
+                counts = await pipe.execute()
 
-        if total > 0 and captcha_jobs + portal_user_jobs == 0:
-            for entry in await self.list_all_job_logs():
-                scope = str(entry.get("log_scope") or "captcha_jobs").strip() or "captcha_jobs"
-                if scope == "portal_user_jobs":
-                    portal_user_jobs += 1
-                else:
-                    captcha_jobs += 1
+            total = int(counts[0] or 0)
+            captcha_jobs = int(counts[1] or 0)
+            portal_user_jobs = int(counts[2] or 0)
+            indexes_ready = bool(counts[3])
 
-        keys_to_delete = [
-            aggregate_key,
-            captcha_key,
-            portal_key,
-            self._key("seq:jobs"),
-        ]
-        keys_to_delete.extend(await self._scan_keys(pattern="logs:jobs:api_key:*"))
-        keys_to_delete.extend(await self._scan_keys(pattern="logs:jobs:portal_user:*"))
-        await self._delete_keys(keys_to_delete)
+            if total > 0 and captcha_jobs + portal_user_jobs == 0 and not indexes_ready:
+                safe_batch_size = max(100, min(500, self.max_entries))
+                for start in range(0, total, safe_batch_size):
+                    stop = min(total - 1, start + safe_batch_size - 1)
+                    raw_items = await client.lrange(aggregate_key, start, stop)
+                    for raw in raw_items or []:
+                        try:
+                            entry = json.loads(str(raw))
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(entry, dict):
+                            continue
+                        scope = str(entry.get("log_scope") or "captcha_jobs").strip() or "captcha_jobs"
+                        if scope == "portal_user_jobs":
+                            portal_user_jobs += 1
+                        else:
+                            captcha_jobs += 1
+
+            keys_to_delete = [
+                aggregate_key,
+                captcha_key,
+                portal_key,
+                ready_key,
+                self._key("seq:jobs"),
+            ]
+            keys_to_delete.extend(await self._job_log_index_keys())
+            await self._delete_keys(keys_to_delete)
 
         return {
             "total": max(total, captcha_jobs + portal_user_jobs),

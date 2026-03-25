@@ -296,6 +296,267 @@ def validate_browser_proxy_url(proxy_url: str) -> tuple[bool, str]:
     return True, None
 
 
+def _build_user_agent_pool(base_user_agents: List[str], *, extra_count: int = 100) -> List[str]:
+    """在保留已验证 UA 的基础上，扩充更多候选，减少指纹重复率。"""
+    normalized_pool: List[str] = []
+    seen: Set[str] = set()
+    for raw_user_agent in base_user_agents:
+        if not isinstance(raw_user_agent, str):
+            continue
+        user_agent = raw_user_agent.strip()
+        if not user_agent or user_agent in seen:
+            continue
+        normalized_pool.append(user_agent)
+        seen.add(user_agent)
+
+    target_total = len(normalized_pool) + max(0, int(extra_count))
+    if len(normalized_pool) >= target_total:
+        return normalized_pool
+
+    candidate_pool: List[str] = []
+
+    windows_platforms = [
+        "Windows NT 10.0; Win64; x64",
+        "Windows NT 10.0; WOW64",
+    ]
+    windows_chrome_builds = [
+        "132.0.6834.84",
+        "132.0.6834.111",
+        "132.0.6834.159",
+        "131.0.6778.141",
+        "131.0.6778.205",
+        "131.0.6778.243",
+        "130.0.6723.91",
+        "130.0.6723.117",
+        "129.0.6668.70",
+        "129.0.6668.101",
+        "128.0.6613.84",
+        "128.0.6613.120",
+    ]
+    for platform in windows_platforms:
+        for chrome_build in windows_chrome_builds:
+            candidate_pool.append(
+                f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{chrome_build} Safari/537.36"
+            )
+
+    windows_edge_pairs = [
+        ("132.0.6834.159", "132.0.2957.115"),
+        ("132.0.6834.111", "132.0.2957.140"),
+        ("131.0.6778.243", "131.0.2903.99"),
+        ("131.0.6778.205", "131.0.2903.112"),
+        ("130.0.6723.117", "130.0.2849.80"),
+        ("130.0.6723.91", "130.0.2849.96"),
+        ("129.0.6668.101", "129.0.2792.65"),
+        ("128.0.6613.120", "128.0.2739.79"),
+    ]
+    for platform in windows_platforms:
+        for chrome_build, edge_build in windows_edge_pairs:
+            candidate_pool.append(
+                f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{chrome_build} Safari/537.36 Edg/{edge_build}"
+            )
+
+    firefox_versions = [
+        "134.0.1",
+        "134.0.2",
+        "133.0.3",
+        "132.0.2",
+        "131.0",
+        "130.0.1",
+    ]
+    for platform in windows_platforms:
+        for firefox_version in firefox_versions:
+            candidate_pool.append(
+                f"Mozilla/5.0 ({platform}; rv:{firefox_version}) Gecko/20100101 Firefox/{firefox_version}"
+            )
+
+    mac_platforms = [
+        "Macintosh; Intel Mac OS X 14_5_0",
+        "Macintosh; Intel Mac OS X 14_4_0",
+        "Macintosh; Intel Mac OS X 13_6_6",
+        "Macintosh; Intel Mac OS X 12_7_6",
+    ]
+    mac_chrome_builds = [
+        "132.0.6834.84",
+        "132.0.6834.159",
+        "131.0.6778.141",
+        "131.0.6778.243",
+        "130.0.6723.117",
+        "129.0.6668.101",
+    ]
+    for platform in mac_platforms:
+        for chrome_build in mac_chrome_builds:
+            candidate_pool.append(
+                f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{chrome_build} Safari/537.36"
+            )
+
+    mac_edge_pairs = [
+        ("132.0.6834.159", "132.0.2957.115"),
+        ("131.0.6778.243", "131.0.2903.112"),
+        ("130.0.6723.117", "130.0.2849.96"),
+        ("129.0.6668.101", "129.0.2792.65"),
+    ]
+    for platform in mac_platforms:
+        for chrome_build, edge_build in mac_edge_pairs:
+            candidate_pool.append(
+                f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{chrome_build} Safari/537.36 Edg/{edge_build}"
+            )
+
+    android_profiles = [
+        ("Android 14; Pixel 8", "132.0.6834.111"),
+        ("Android 14; SM-S9280", "132.0.6834.159"),
+        ("Android 14; OnePlus 12", "131.0.6778.243"),
+        ("Android 13; Pixel 7 Pro", "131.0.6778.205"),
+        ("Android 13; Xiaomi 14", "130.0.6723.117"),
+        ("Android 13; V2318A", "130.0.6723.91"),
+        ("Android 12; CPH2451", "129.0.6668.101"),
+        ("Android 12; RMX3840", "128.0.6613.120"),
+    ]
+    for device_token, chrome_build in android_profiles:
+        candidate_pool.append(
+            f"Mozilla/5.0 (Linux; {device_token}) AppleWebKit/537.36 "
+            f"(KHTML, like Gecko) Chrome/{chrome_build} Mobile Safari/537.36"
+        )
+
+    for candidate in candidate_pool:
+        if candidate in seen:
+            continue
+        normalized_pool.append(candidate)
+        seen.add(candidate)
+        if len(normalized_pool) >= target_total:
+            break
+
+    return normalized_pool
+
+
+def _classify_user_agent_platform(user_agent: str) -> str:
+    normalized = str(user_agent or "").lower()
+    if "iphone" in normalized or "ipad" in normalized or "crios" in normalized or "edgios" in normalized:
+        return "ios"
+    if "android" in normalized or "mobile" in normalized or "samsungbrowser" in normalized or "edga/" in normalized:
+        return "android"
+    if "mac os x" in normalized or "macintosh" in normalized:
+        return "mac"
+    if "linux" in normalized:
+        return "linux"
+    return "windows"
+
+
+@dataclass(frozen=True)
+class BrowserProfile:
+    user_agent: str
+    viewport: Dict[str, int]
+    locale: str
+    timezone_id: str
+    accept_language: str
+    device_scale_factor: float = 1.0
+    is_mobile: bool = False
+    has_touch: bool = False
+    profile_family: str = "desktop"
+
+
+def _build_browser_profile_pool(
+    user_agents: List[str],
+    *,
+    desktop_resolutions: List[tuple[int, int]],
+) -> List[BrowserProfile]:
+    """为 UA 绑定更完整的 profile，避免只随机 UA 和 viewport。"""
+    desktop_regions = [
+        ("zh-CN", "zh-CN,zh;q=0.9,en;q=0.8", "Asia/Shanghai"),
+        ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"),
+        ("en-GB", "en-GB,en;q=0.9", "Europe/London"),
+        ("ja-JP", "ja-JP,ja;q=0.9,en;q=0.7", "Asia/Tokyo"),
+    ]
+    mobile_regions = [
+        ("zh-CN", "zh-CN,zh;q=0.9,en;q=0.8", "Asia/Shanghai"),
+        ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"),
+        ("en-SG", "en-SG,en;q=0.9,zh-CN;q=0.6", "Asia/Singapore"),
+        ("ja-JP", "ja-JP,ja;q=0.9,en;q=0.7", "Asia/Tokyo"),
+    ]
+    iphone_viewports = [
+        {"width": 393, "height": 852},
+        {"width": 430, "height": 932},
+        {"width": 390, "height": 844},
+    ]
+    android_viewports = [
+        {"width": 412, "height": 915},
+        {"width": 384, "height": 854},
+        {"width": 360, "height": 800},
+        {"width": 412, "height": 892},
+    ]
+    tablet_viewports = [
+        {"width": 820, "height": 1180},
+        {"width": 768, "height": 1024},
+        {"width": 800, "height": 1280},
+    ]
+
+    profiles: List[BrowserProfile] = []
+    for user_agent in user_agents:
+        digest = int(hashlib.sha256(user_agent.encode("utf-8")).hexdigest()[:8], 16)
+        platform_family = _classify_user_agent_platform(user_agent)
+
+        if platform_family == "ios":
+            viewport = dict(iphone_viewports[digest % len(iphone_viewports)])
+            locale, accept_language, timezone_id = mobile_regions[digest % len(mobile_regions)]
+            profiles.append(
+                BrowserProfile(
+                    user_agent=user_agent,
+                    viewport=viewport,
+                    locale=locale,
+                    timezone_id=timezone_id,
+                    accept_language=accept_language,
+                    device_scale_factor=3.0,
+                    is_mobile=True,
+                    has_touch=True,
+                    profile_family="mobile",
+                )
+            )
+            continue
+
+        if platform_family == "android":
+            viewport_source = android_viewports if "mobile" in user_agent.lower() else tablet_viewports
+            viewport = dict(viewport_source[digest % len(viewport_source)])
+            locale, accept_language, timezone_id = mobile_regions[digest % len(mobile_regions)]
+            profiles.append(
+                BrowserProfile(
+                    user_agent=user_agent,
+                    viewport=viewport,
+                    locale=locale,
+                    timezone_id=timezone_id,
+                    accept_language=accept_language,
+                    device_scale_factor=3.0 if viewport["width"] <= 430 else 2.0,
+                    is_mobile=True,
+                    has_touch=True,
+                    profile_family="mobile" if viewport["width"] <= 430 else "tablet",
+                )
+            )
+            continue
+
+        resolution = desktop_resolutions[digest % len(desktop_resolutions)]
+        locale, accept_language, timezone_id = desktop_regions[digest % len(desktop_regions)]
+        width, height = resolution
+        height = max(640, height - (digest % 96))
+        device_scale_factor = 2.0 if platform_family == "mac" and width >= 1400 else 1.0
+        profiles.append(
+            BrowserProfile(
+                user_agent=user_agent,
+                viewport={"width": width, "height": height},
+                locale=locale,
+                timezone_id=timezone_id,
+                accept_language=accept_language,
+                device_scale_factor=device_scale_factor,
+                is_mobile=False,
+                has_touch=False,
+                profile_family="desktop",
+            )
+        )
+
+    return profiles
+
+
 @dataclass
 class TokenAcquireResult:
     token: Optional[str]
@@ -326,8 +587,8 @@ class TokenBrowser:
     
     每次都是新的随机 UA，避免长时间运行导致的各种问题
     """
-    # UA pool updated on 2026-03-01 from browsers that scored >= 0.3.
-    UA_LIST = [
+    # 保留原始已验证 UA，同时在类定义末尾自动扩充 100 条候选。
+    _BASE_UA_LIST = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -407,6 +668,8 @@ class TokenBrowser:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 Edg/132.0.2957.171",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 OPR/117.0.0.0",
     ]
+    UA_POOL_EXTRA_COUNT = 100
+    UA_LIST = _build_user_agent_pool(_BASE_UA_LIST, extra_count=UA_POOL_EXTRA_COUNT)
     
     # 分辨率池
     RESOLUTIONS = [
@@ -419,6 +682,10 @@ class TokenBrowser:
         (2256, 1504), (2496, 1664), (3240, 2160),
         (3200, 1800), (2304, 1440), (1800, 1200),
     ]
+    DEFAULT_PROFILE_POOL = tuple(_build_browser_profile_pool(UA_LIST, desktop_resolutions=RESOLUTIONS))
+    PROFILE_POOL_CACHE: Dict[int, tuple[BrowserProfile, ...]] = {
+        UA_POOL_EXTRA_COUNT: DEFAULT_PROFILE_POOL,
+    }
     
     def __init__(self, token_id: int, user_data_dir: str, db=None):
         self.token_id = token_id
@@ -455,16 +722,107 @@ class TokenBrowser:
         self._solve_inflight = 0
         self._last_idle_since = time.monotonic()
         self._browser_epoch = 0
+        self._profile_pool = self._build_profile_pool()
+        self._active_profile: Optional[BrowserProfile] = None
         self._refresh_browser_profile()
+
+    def _fingerprint_pool_extra_count(self) -> int:
+        try:
+            raw_value = getattr(config, "browser_fingerprint_pool_extra_count", self.UA_POOL_EXTRA_COUNT)
+            if raw_value is None or raw_value == "":
+                return self.UA_POOL_EXTRA_COUNT
+            return max(0, int(raw_value))
+        except Exception:
+            return self.UA_POOL_EXTRA_COUNT
+
+    def _build_profile_pool(self) -> tuple[BrowserProfile, ...]:
+        extra_count = self._fingerprint_pool_extra_count()
+        cached_pool = self.PROFILE_POOL_CACHE.get(extra_count)
+        if cached_pool is not None:
+            return cached_pool
+
+        user_agents = _build_user_agent_pool(self._BASE_UA_LIST, extra_count=extra_count)
+        profile_pool = tuple(_build_browser_profile_pool(user_agents, desktop_resolutions=self.RESOLUTIONS))
+        self.PROFILE_POOL_CACHE[extra_count] = profile_pool
+        return profile_pool
 
     def _refresh_browser_profile(self):
         """Refresh the in-memory browser fingerprint profile."""
-        base_w, base_h = random.choice(self.RESOLUTIONS)
-        self._profile_user_agent = random.choice(self.UA_LIST)
-        self._profile_viewport = {
-            "width": base_w,
-            "height": base_h - random.randint(0, 80),
-        }
+        if not self._profile_pool:
+            self._profile_pool = self._build_profile_pool()
+        profile = random.choice(self._profile_pool)
+        self._active_profile = profile
+        self._profile_user_agent = profile.user_agent
+        self._profile_viewport = dict(profile.viewport)
+        self._profile_locale = profile.locale
+        self._profile_timezone_id = profile.timezone_id
+        self._profile_accept_language = profile.accept_language
+        self._profile_device_scale_factor = float(profile.device_scale_factor)
+        self._profile_is_mobile = bool(profile.is_mobile)
+        self._profile_has_touch = bool(profile.has_touch)
+        self._profile_family = profile.profile_family
+
+    def _retry_max_attempts(self) -> int:
+        try:
+            return max(1, int(getattr(config, "browser_retry_max_attempts", 3) or 3))
+        except Exception:
+            return 3
+
+    def _retry_backoff_seconds(self) -> float:
+        try:
+            raw_value = getattr(config, "browser_retry_backoff_seconds", 1.0)
+            if raw_value is None or raw_value == "":
+                return 1.0
+            return max(0.0, float(raw_value))
+        except Exception:
+            return 1.0
+
+    def _execute_timeout_seconds(self, *, fallback: float) -> float:
+        try:
+            return max(5.0, float(getattr(config, "browser_execute_timeout_seconds", fallback) or fallback))
+        except Exception:
+            return fallback
+
+    def _execute_script_timeout_ms(self, *, fallback: float) -> int:
+        return max(5000, int(self._execute_timeout_seconds(fallback=fallback) * 1000) - 5000)
+
+    def _reload_wait_timeout_seconds(self) -> float:
+        try:
+            return max(1.0, float(getattr(config, "browser_reload_wait_timeout_seconds", 12.0) or 12.0))
+        except Exception:
+            return 12.0
+
+    def _clr_wait_timeout_seconds(self) -> float:
+        try:
+            return max(1.0, float(getattr(config, "browser_clr_wait_timeout_seconds", 12.0) or 12.0))
+        except Exception:
+            return 12.0
+
+    def _request_finish_image_wait_seconds(self, *, flow_timeout: int, upsample_timeout: int) -> int:
+        fallback = max(max(flow_timeout, upsample_timeout) + 180, 900)
+        try:
+            return max(60, int(getattr(config, "browser_request_finish_image_wait_seconds", fallback) or fallback))
+        except Exception:
+            return fallback
+
+    def _request_finish_non_image_wait_seconds(self, *, flow_timeout: int) -> int:
+        fallback = max(flow_timeout + 300, 1800)
+        try:
+            return max(60, int(getattr(config, "browser_request_finish_non_image_wait_seconds", fallback) or fallback))
+        except Exception:
+            return fallback
+
+    def _custom_page_cache_max_pages(self) -> int:
+        try:
+            return max(1, int(getattr(config, "browser_custom_page_cache_max_pages", 3) or 3))
+        except Exception:
+            return 3
+
+    def _custom_page_idle_ttl_seconds(self) -> float:
+        try:
+            return max(30.0, float(getattr(config, "browser_custom_page_idle_ttl_seconds", 240.0) or 240.0))
+        except Exception:
+            return 240.0
 
     def _get_slot_marker(self) -> str:
         return f"--flow2api-browser-slot={self.token_id}"
@@ -920,6 +1278,13 @@ class TokenBrowser:
             "render_value": render_value,
         }
 
+    def _custom_page_is_stale(self, custom_key: str, *, now_value: Optional[float] = None) -> bool:
+        last_used = float(self._shared_custom_page_last_used.get(custom_key, 0.0) or 0.0)
+        if last_used <= 0:
+            return False
+        current = float(now_value if now_value is not None else time.monotonic())
+        return (current - last_used) >= self._custom_page_idle_ttl_seconds()
+
     async def _inject_custom_page_scripts(self, page, runtime: Dict[str, Any]):
         if runtime["is_turnstile"]:
             await page.evaluate(
@@ -975,10 +1340,12 @@ class TokenBrowser:
     ) -> Dict[str, Any]:
         page_loaded = False
         stage_started = time.perf_counter()
+        goto_timeout_ms = int(self._execute_timeout_seconds(fallback=30.0) * 1000)
+        ready_timeout_ms = int(self._execute_timeout_seconds(fallback=15.0) * 1000)
 
         try:
             goto_started = time.perf_counter()
-            await page.goto(website_url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(website_url, wait_until="domcontentloaded", timeout=goto_timeout_ms)
             goto_ms = int((time.perf_counter() - goto_started) * 1000)
         except Exception as e:
             debug_logger.log_warning(
@@ -1030,7 +1397,7 @@ class TokenBrowser:
 
         try:
             ready_started = time.perf_counter()
-            await page.wait_for_function(runtime["wait_expression"], timeout=15000)
+            await page.wait_for_function(runtime["wait_expression"], timeout=ready_timeout_ms)
             ready_ms = int((time.perf_counter() - ready_started) * 1000)
         except Exception as e:
             debug_logger.log_warning(
@@ -1039,7 +1406,7 @@ class TokenBrowser:
             try:
                 await self._inject_custom_page_scripts(page, runtime)
                 ready_started = time.perf_counter()
-                await page.wait_for_function(runtime["wait_expression"], timeout=15000)
+                await page.wait_for_function(runtime["wait_expression"], timeout=ready_timeout_ms)
                 ready_ms = int((time.perf_counter() - ready_started) * 1000)
             except Exception as inject_error:
                 debug_logger.log_warning(
@@ -1053,8 +1420,19 @@ class TokenBrowser:
             "ready_page_prepare_ms": int((time.perf_counter() - stage_started) * 1000),
         }
 
-    async def _trim_shared_custom_pages(self, *, keep_key: Optional[str] = None, max_pages: int = 3):
-        while len(self._shared_custom_pages) > max_pages:
+    async def _trim_shared_custom_pages(self, *, keep_key: Optional[str] = None, max_pages: Optional[int] = None):
+        safe_max_pages = max(1, int(max_pages or self._custom_page_cache_max_pages()))
+        now_value = time.monotonic()
+
+        stale_keys = [
+            page_key
+            for page_key in list(self._shared_custom_pages.keys())
+            if page_key != keep_key and self._custom_page_is_stale(page_key, now_value=now_value)
+        ]
+        for stale_key in stale_keys:
+            await self._drop_shared_custom_page(stale_key)
+
+        while len(self._shared_custom_pages) > safe_max_pages:
             evictable = [
                 (page_key, self._shared_custom_page_last_used.get(page_key, 0.0))
                 for page_key in self._shared_custom_pages
@@ -1083,13 +1461,19 @@ class TokenBrowser:
         custom_page = self._shared_custom_pages.get(custom_key)
         ready_hit = False
 
+        await self._trim_shared_custom_pages(keep_key=custom_key)
+
         try:
             if custom_page and not custom_page.is_closed():
-                ready_ok = await custom_page.evaluate(runtime["wait_expression"])
-                if ready_ok:
-                    ready_hit = True
-                    self._shared_custom_page_last_used[custom_key] = time.monotonic()
-                    return custom_page, custom_key, runtime, ready_hit
+                if self._custom_page_is_stale(custom_key):
+                    await self._drop_shared_custom_page(custom_key)
+                    custom_page = None
+                else:
+                    ready_ok = await custom_page.evaluate(runtime["wait_expression"])
+                    if ready_ok:
+                        ready_hit = True
+                        self._shared_custom_page_last_used[custom_key] = time.monotonic()
+                        return custom_page, custom_key, runtime, ready_hit
         except Exception:
             pass
 
@@ -1159,14 +1543,18 @@ class TokenBrowser:
 
         try:
             goto_started = time.perf_counter()
-            await page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(
+                page_url,
+                wait_until="domcontentloaded",
+                timeout=int(self._execute_timeout_seconds(fallback=30.0) * 1000),
+            )
             goto_ms = int((time.perf_counter() - goto_started) * 1000)
             ready_started = time.perf_counter()
             await page.wait_for_function(
                 "typeof grecaptcha !== 'undefined' && "
                 "typeof grecaptcha.enterprise !== 'undefined' && "
                 "typeof grecaptcha.enterprise.execute === 'function'",
-                timeout=15000,
+                timeout=int(self._execute_timeout_seconds(fallback=15.0) * 1000),
             )
             ready_ms = int((time.perf_counter() - ready_started) * 1000)
         except Exception:
@@ -1267,6 +1655,14 @@ class TokenBrowser:
         # Record the initial fingerprint; sec-ch-* values are filled later from the page.
         self._last_fingerprint = {
             "user_agent": random_ua,
+            "accept_language": self._profile_accept_language,
+            "locale": self._profile_locale,
+            "timezone_id": self._profile_timezone_id,
+            "device_scale_factor": self._profile_device_scale_factor,
+            "is_mobile": self._profile_is_mobile,
+            "has_touch": self._profile_has_touch,
+            "profile_family": self._profile_family,
+            "viewport": dict(viewport),
             "proxy_url": raw_proxy_url if raw_proxy_url else None,
         }
 
@@ -1314,6 +1710,12 @@ class TokenBrowser:
             context = await browser.new_context(
                 user_agent=random_ua,
                 viewport=viewport,
+                locale=self._profile_locale,
+                timezone_id=self._profile_timezone_id,
+                device_scale_factor=self._profile_device_scale_factor,
+                is_mobile=self._profile_is_mobile,
+                has_touch=self._profile_has_touch,
+                extra_http_headers={"Accept-Language": self._profile_accept_language},
             )
             driver_proc = self._extract_driver_proc(playwright=playwright, browser=browser)
             driver_pid = self._extract_driver_pid(proc=driver_proc)
@@ -1458,6 +1860,13 @@ class TokenBrowser:
                         sec_ch_ua: secChUa,
                         sec_ch_ua_mobile: secChUaMobile,
                         sec_ch_ua_platform: secChUaPlatform,
+                        timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+                        device_scale_factor: Number(window.devicePixelRatio || 1),
+                        has_touch: Number(navigator.maxTouchPoints || 0) > 0,
+                        viewport: {
+                            width: Number(window.innerWidth || 0),
+                            height: Number(window.innerHeight || 0),
+                        },
                     };
                 }
             """)
@@ -1472,6 +1881,24 @@ class TokenBrowser:
                 value = fingerprint.get(key)
                 if isinstance(value, str) and value:
                     self._last_fingerprint[key] = value
+            timezone_id = fingerprint.get("timezone_id")
+            if isinstance(timezone_id, str) and timezone_id:
+                self._last_fingerprint["timezone_id"] = timezone_id
+            device_scale_factor = fingerprint.get("device_scale_factor")
+            if isinstance(device_scale_factor, (int, float)) and device_scale_factor > 0:
+                self._last_fingerprint["device_scale_factor"] = float(device_scale_factor)
+            has_touch = fingerprint.get("has_touch")
+            if isinstance(has_touch, bool):
+                self._last_fingerprint["has_touch"] = has_touch
+            viewport = fingerprint.get("viewport")
+            if isinstance(viewport, dict):
+                width = viewport.get("width")
+                height = viewport.get("height")
+                if isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 0 and height > 0:
+                    self._last_fingerprint["viewport"] = {
+                        "width": int(width),
+                        "height": int(height),
+                    }
         except Exception as e:
             debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} 提取浏览器指纹失败: {type(e).__name__}: {str(e)[:200]}")
 
@@ -1716,12 +2143,12 @@ class TokenBrowser:
         flow_timeout = int(getattr(config, "flow_timeout", 300) or 300)
         upsample_timeout = int(getattr(config, "upsample_timeout", 300) or 300)
         if action == "IMAGE_GENERATION":
-            # 图片链路可能包含放大请求，等待上限至少覆盖 flow/upsample 超时
-            base_timeout = max(flow_timeout, upsample_timeout)
-            wait_timeout = max(base_timeout + 180, 900)
+            wait_timeout = self._request_finish_image_wait_seconds(
+                flow_timeout=flow_timeout,
+                upsample_timeout=upsample_timeout,
+            )
         else:
-            # 视频请求默认超时更长，给更大的缓冲避免“请求未结束就关闭”
-            wait_timeout = max(flow_timeout + 300, 1800)
+            wait_timeout = self._request_finish_non_image_wait_seconds(flow_timeout=flow_timeout)
         request_ref = uuid.uuid4().hex
         release_event = asyncio.Event()
         release_task = asyncio.create_task(
@@ -1843,25 +2270,27 @@ class TokenBrowser:
             await self._capture_page_fingerprint(page)
 
             execute_started = time.perf_counter()
+            execute_timeout_seconds = self._execute_timeout_seconds(fallback=30.0)
+            execute_script_timeout_ms = self._execute_script_timeout_ms(fallback=30.0)
             token = await asyncio.wait_for(
                 page.evaluate(f"""
                     (actionName) => {{
                         return new Promise((resolve, reject) => {{
-                            const timeout = setTimeout(() => reject(new Error('timeout')), 25000);
+                            const timeout = setTimeout(() => reject(new Error('timeout')), {execute_script_timeout_ms});
                             grecaptcha.enterprise.execute('{website_key}', {{action: actionName}})
                                 .then(t => {{ resolve(t); }})
                                 .catch(e => {{ reject(e); }});
                         }});
                     }}
                 """, action),
-                timeout=30
+                timeout=execute_timeout_seconds
             )
             stage_timings["execute_ms"] = int((time.perf_counter() - execute_started) * 1000)
 
             # 按要求：等待 enterprise/reload 与 enterprise/clr 均出现并返回 200
             try:
                 reload_started = time.perf_counter()
-                await asyncio.wait_for(reload_ok_event.wait(), timeout=12)
+                await asyncio.wait_for(reload_ok_event.wait(), timeout=self._reload_wait_timeout_seconds())
                 stage_timings["reload_wait_ms"] = int((time.perf_counter() - reload_started) * 1000)
             except asyncio.TimeoutError:
                 debug_logger.log_warning(
@@ -1871,7 +2300,7 @@ class TokenBrowser:
 
             try:
                 clr_started = time.perf_counter()
-                await asyncio.wait_for(clr_ok_event.wait(), timeout=12)
+                await asyncio.wait_for(clr_ok_event.wait(), timeout=self._clr_wait_timeout_seconds())
                 stage_timings["clr_wait_ms"] = int((time.perf_counter() - clr_started) * 1000)
             except asyncio.TimeoutError:
                 debug_logger.log_warning(
@@ -1964,6 +2393,8 @@ class TokenBrowser:
                 )
 
             await self._capture_page_fingerprint(page)
+            execute_timeout_seconds = self._execute_timeout_seconds(fallback=45.0)
+            execute_script_timeout_ms = self._execute_script_timeout_ms(fallback=45.0)
 
             if runtime["is_turnstile"]:
                 token = await asyncio.wait_for(
@@ -1982,7 +2413,7 @@ class TokenBrowser:
                                         if (settled) return;
                                         settled = true;
                                         reject(new Error('timeout'));
-                                    }, 30000);
+                                    }, """ + str(execute_script_timeout_ms) + """);
 
                                     const done = (token) => {
                                         if (settled || !token) return;
@@ -2043,7 +2474,7 @@ class TokenBrowser:
                         """,
                         {"siteKey": website_key, "actionName": action},
                     ),
-                    timeout=45,
+                    timeout=execute_timeout_seconds,
                 )
             elif runtime["is_recaptcha_v2"]:
                 token = await asyncio.wait_for(
@@ -2064,7 +2495,7 @@ class TokenBrowser:
                                         if (settled) return;
                                         settled = true;
                                         reject(new Error('timeout'));
-                                    }, 30000);
+                                    }, """ + str(execute_script_timeout_ms) + """);
 
                                     const done = (token) => {
                                         if (settled || !token) return;
@@ -2140,7 +2571,7 @@ class TokenBrowser:
                             "invisibleMode": bool(is_invisible),
                         },
                     ),
-                    timeout=45,
+                    timeout=execute_timeout_seconds,
                 )
             else:
                 token = await asyncio.wait_for(
@@ -2148,7 +2579,7 @@ class TokenBrowser:
                         f"""
                             (actionName) => {{
                                 return new Promise((resolve, reject) => {{
-                                    const timeout = setTimeout(() => reject(new Error('timeout')), 25000);
+                                    const timeout = setTimeout(() => reject(new Error('timeout')), {execute_script_timeout_ms});
                                     try {{
                                         {runtime['ready_target']}(function() {{
                                             {runtime['execute_target']}('{website_key}', {{action: actionName}})
@@ -2170,7 +2601,7 @@ class TokenBrowser:
                         """,
                         action,
                     ),
-                    timeout=30,
+                    timeout=self._execute_timeout_seconds(fallback=30.0),
                 )
 
             post_wait_seconds = float(getattr(config, "browser_recaptcha_settle_seconds", 3) or 3)
@@ -2240,7 +2671,8 @@ class TokenBrowser:
         """Get a token from the shared browser unless a fatal browser error occurs."""
         async with self._semaphore:
             self._solve_inflight += 1
-            max_retries = 3
+            max_retries = self._retry_max_attempts()
+            retry_backoff_seconds = self._retry_backoff_seconds()
 
             try:
                 for attempt in range(max_retries):
@@ -2304,7 +2736,7 @@ class TokenBrowser:
                             await self._drop_shared_ready_page()
 
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(retry_backoff_seconds)
 
                 return TokenAcquireResult(
                     token=None,
@@ -2332,7 +2764,8 @@ class TokenBrowser:
         """Get a custom reCAPTCHA token using the shared browser whenever possible."""
         async with self._semaphore:
             self._solve_inflight += 1
-            max_retries = 3
+            max_retries = self._retry_max_attempts()
+            retry_backoff_seconds = self._retry_backoff_seconds()
 
             try:
                 for attempt in range(max_retries):
@@ -2384,7 +2817,7 @@ class TokenBrowser:
                             await self.recycle_browser(reason="custom_browser_runtime_error", rotate_profile=False)
 
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(retry_backoff_seconds)
 
                 return None
             finally:
@@ -2403,7 +2836,8 @@ class TokenBrowser:
         """Get a custom token and verify its score using the shared browser whenever possible."""
         async with self._semaphore:
             self._solve_inflight += 1
-            max_retries = 3
+            max_retries = self._retry_max_attempts()
+            retry_backoff_seconds = self._retry_backoff_seconds()
 
             try:
                 for attempt in range(max_retries):
@@ -2455,7 +2889,7 @@ class TokenBrowser:
                             await self.recycle_browser(reason="custom_score_browser_runtime_error", rotate_profile=False)
 
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(retry_backoff_seconds)
 
                 return {
                     "token": None,
@@ -2491,8 +2925,10 @@ class BrowserCaptchaService:
         self._proxy_pool_cursor_by_key: Dict[str, int] = {}
         self._proxy_pool_lock = asyncio.Lock()
         self._project_slot_affinity: Dict[str, List[int]] = {}
+        self._project_slot_last_used: Dict[str, float] = {}
         self._project_slot_lock = asyncio.Lock()
         self._standby_tokens: Dict[str, List[StandbyTokenEntry]] = {}
+        self._standby_bucket_last_used: Dict[str, float] = {}
         self._standby_lock = asyncio.Lock()
         self._standby_refill_tasks: Dict[str, asyncio.Task] = {}
         self._foreground_solves_inflight = 0
@@ -2512,6 +2948,12 @@ class BrowserCaptchaService:
         # The concurrency limit is initialized by _load_browser_count.
         self._token_semaphore = None
         self._idle_reaper_task: Optional[asyncio.Task] = None
+
+    def _idle_reaper_interval_seconds(self) -> float:
+        try:
+            return max(1.0, float(getattr(config, "browser_idle_reaper_interval_seconds", 15.0) or 15.0))
+        except Exception:
+            return 15.0
     
     async def _ensure_idle_reaper(self):
         if self._idle_reaper_task is None or self._idle_reaper_task.done():
@@ -2520,7 +2962,7 @@ class BrowserCaptchaService:
     async def _idle_reaper_loop(self):
         while True:
             try:
-                await asyncio.sleep(15)
+                await asyncio.sleep(self._idle_reaper_interval_seconds())
                 idle_ttl = int(getattr(config, "browser_idle_ttl_seconds", 600) or 600)
                 browsers = []
                 async with self._browsers_lock:
@@ -2613,6 +3055,11 @@ class BrowserCaptchaService:
                 if valid_slots:
                     pruned[project_key] = valid_slots
             self._project_slot_affinity = pruned
+            self._project_slot_last_used = {
+                project_key: float(self._project_slot_last_used.get(project_key, time.monotonic()))
+                for project_key in self._project_slot_affinity
+            }
+            self._trim_project_affinity_locked()
 
     def _log_stats(self):
         total = self._stats["req_total"]
@@ -2639,13 +3086,141 @@ class BrowserCaptchaService:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    def _project_affinity_max_keys(self) -> int:
+        fallback = max(32, self._browser_count * 16)
+        try:
+            return max(1, int(getattr(config, "browser_project_affinity_max_keys", fallback) or fallback))
+        except Exception:
+            return fallback
+
+    def _project_affinity_ttl_seconds(self) -> float:
+        try:
+            return max(60.0, float(getattr(config, "browser_project_affinity_ttl_seconds", 1800.0) or 1800.0))
+        except Exception:
+            return 1800.0
+
+    def _standby_bucket_max_count(self) -> int:
+        fallback = max(32, self._browser_count * 12)
+        try:
+            return max(1, int(getattr(config, "browser_standby_bucket_max_count", fallback) or fallback))
+        except Exception:
+            return fallback
+
+    def _standby_bucket_idle_ttl_seconds(self) -> float:
+        fallback = max(self._standby_token_ttl_seconds() * 2.0, 180.0)
+        try:
+            return max(30.0, float(getattr(config, "browser_standby_bucket_idle_ttl_seconds", fallback) or fallback))
+        except Exception:
+            return fallback
+
+    @staticmethod
+    def _compact_standby_fingerprint(fingerprint: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(fingerprint, dict):
+            return fingerprint
+        compact: Dict[str, Any] = {}
+        for key in (
+            "user_agent",
+            "userAgent",
+            "accept_language",
+            "sec_ch_ua",
+            "sec_ch_ua_mobile",
+            "sec_ch_ua_platform",
+            "locale",
+            "timezone_id",
+            "profile_family",
+        ):
+            value = fingerprint.get(key)
+            if isinstance(value, str) and value:
+                compact[key] = value
+        for key in ("device_scale_factor",):
+            value = fingerprint.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                compact[key] = value
+        for key in ("is_mobile", "has_touch"):
+            value = fingerprint.get(key)
+            if isinstance(value, bool):
+                compact[key] = value
+        viewport = fingerprint.get("viewport")
+        if isinstance(viewport, dict):
+            width = viewport.get("width")
+            height = viewport.get("height")
+            if isinstance(width, int) and isinstance(height, int):
+                compact["viewport"] = {"width": width, "height": height}
+        return compact or None
+
+    def _touch_project_affinity_locked(self, project_key: str, *, now_value: Optional[float] = None):
+        normalized_key = str(project_key or "").strip()
+        if not normalized_key:
+            return
+        self._project_slot_last_used[normalized_key] = float(now_value if now_value is not None else time.monotonic())
+
+    def _trim_project_affinity_locked(self):
+        now_value = time.monotonic()
+        ttl_seconds = self._project_affinity_ttl_seconds()
+        stale_keys = [
+            project_key
+            for project_key, last_used in self._project_slot_last_used.items()
+            if (now_value - float(last_used or 0.0)) >= ttl_seconds
+        ]
+        for project_key in stale_keys:
+            self._project_slot_affinity.pop(project_key, None)
+            self._project_slot_last_used.pop(project_key, None)
+
+        max_keys = self._project_affinity_max_keys()
+        while len(self._project_slot_affinity) > max_keys:
+            evictable = [
+                (project_key, float(self._project_slot_last_used.get(project_key, 0.0) or 0.0))
+                for project_key in self._project_slot_affinity
+            ]
+            if not evictable:
+                break
+            evict_key = min(evictable, key=lambda item: item[1])[0]
+            self._project_slot_affinity.pop(evict_key, None)
+            self._project_slot_last_used.pop(evict_key, None)
+
+    def _trim_standby_buckets_locked(self, *, now_value: Optional[float] = None) -> List[asyncio.Task]:
+        current = float(now_value if now_value is not None else time.monotonic())
+        idle_ttl = self._standby_bucket_idle_ttl_seconds()
+        next_state: Dict[str, List[StandbyTokenEntry]] = {}
+
+        for bucket_key, entries in list(self._standby_tokens.items()):
+            kept = [entry for entry in entries if self._is_standby_entry_valid(entry, now_monotonic=current)]
+            last_used = float(self._standby_bucket_last_used.get(bucket_key, 0.0) or 0.0)
+            is_idle = last_used > 0 and (current - last_used) >= idle_ttl
+            if kept and not is_idle:
+                next_state[bucket_key] = kept
+            else:
+                self._standby_bucket_last_used.pop(bucket_key, None)
+
+        self._standby_tokens = next_state
+
+        cancelled_tasks: List[asyncio.Task] = []
+        max_buckets = self._standby_bucket_max_count()
+        while len(self._standby_tokens) > max_buckets:
+            evictable = [
+                (bucket_key, float(self._standby_bucket_last_used.get(bucket_key, 0.0) or 0.0))
+                for bucket_key in self._standby_tokens
+            ]
+            if not evictable:
+                break
+            evict_key = min(evictable, key=lambda item: item[1])[0]
+            self._standby_tokens.pop(evict_key, None)
+            self._standby_bucket_last_used.pop(evict_key, None)
+            refill_task = self._standby_refill_tasks.pop(evict_key, None)
+            if refill_task is not None and not refill_task.done():
+                cancelled_tasks.append(refill_task)
+
+        return cancelled_tasks
+
     async def _select_browser_id(self, project_id: Optional[str]) -> int:
         project_key = str(project_id or '').strip()
         affinity_slots: List[int] = []
         if project_key:
             async with self._project_slot_lock:
+                self._trim_project_affinity_locked()
                 affinity_slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
                 self._project_slot_affinity[project_key] = affinity_slots
+                self._touch_project_affinity_locked(project_key)
 
         async with self._browsers_lock:
             def is_slot_idle(slot_id: int) -> bool:
@@ -2662,19 +3237,23 @@ class BrowserCaptchaService:
                     self._round_robin_index = (slot_id + 1) % self._browser_count
                     if project_key:
                         async with self._project_slot_lock:
+                            self._trim_project_affinity_locked()
                             slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
                             if slot_id not in slots:
                                 slots.append(slot_id)
                             self._project_slot_affinity[project_key] = slots
+                            self._touch_project_affinity_locked(project_key)
                     return slot_id
 
         slot_id = self._get_next_browser_id()
         if project_key:
             async with self._project_slot_lock:
+                self._trim_project_affinity_locked()
                 slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
                 if slot_id not in slots:
                     slots.append(slot_id)
                 self._project_slot_affinity[project_key] = slots
+                self._touch_project_affinity_locked(project_key)
         return slot_id
 
     async def _get_or_create_browser(self, browser_id: int) -> TokenBrowser:
@@ -2844,8 +3423,10 @@ class BrowserCaptchaService:
     async def _take_standby_token(self, bucket_key: str) -> Optional[TokenAcquireResult]:
         now_value = time.monotonic()
         selected: Optional[StandbyTokenEntry] = None
+        cancelled_tasks: List[asyncio.Task] = []
 
         async with self._standby_lock:
+            cancelled_tasks = self._trim_standby_buckets_locked(now_value=now_value)
             entries = list(self._standby_tokens.get(bucket_key, []))
             remaining: List[StandbyTokenEntry] = []
             for entry in entries:
@@ -2858,8 +3439,13 @@ class BrowserCaptchaService:
 
             if remaining:
                 self._standby_tokens[bucket_key] = remaining
+                self._standby_bucket_last_used[bucket_key] = now_value
             else:
                 self._standby_tokens.pop(bucket_key, None)
+                self._standby_bucket_last_used.pop(bucket_key, None)
+
+        for task in cancelled_tasks:
+            task.cancel()
 
         if not selected:
             return None
@@ -2891,7 +3477,9 @@ class BrowserCaptchaService:
         entry = StandbyTokenEntry(
             token=result.token,
             browser_id=int(result.browser_id),
-            fingerprint=dict(result.fingerprint) if isinstance(result.fingerprint, dict) else result.fingerprint,
+            fingerprint=self._compact_standby_fingerprint(
+                dict(result.fingerprint) if isinstance(result.fingerprint, dict) else result.fingerprint
+            ),
             browser_epoch=int(result.browser_epoch),
             project_id=str(project_id or "").strip(),
             action=str(action or "IMAGE_GENERATION").strip().upper(),
@@ -2901,6 +3489,7 @@ class BrowserCaptchaService:
         )
 
         async with self._standby_lock:
+            cancelled_tasks = self._trim_standby_buckets_locked(now_value=now_value)
             entries = [
                 existing
                 for existing in self._standby_tokens.get(bucket_key, [])
@@ -2912,8 +3501,13 @@ class BrowserCaptchaService:
                 entries = entries[-depth:]
             if entries:
                 self._standby_tokens[bucket_key] = entries
+                self._standby_bucket_last_used[bucket_key] = now_value
             else:
                 self._standby_tokens.pop(bucket_key, None)
+                self._standby_bucket_last_used.pop(bucket_key, None)
+
+        for task in cancelled_tasks:
+            task.cancel()
 
     async def _invalidate_standby_tokens_for_browser(self, browser_id: int):
         async with self._standby_lock:
@@ -2922,6 +3516,8 @@ class BrowserCaptchaService:
                 kept = [entry for entry in entries if entry.browser_id != browser_id]
                 if kept:
                     next_state[bucket_key] = kept
+                else:
+                    self._standby_bucket_last_used.pop(bucket_key, None)
             self._standby_tokens = next_state
 
     async def _acquire_live_token(
@@ -2956,11 +3552,16 @@ class BrowserCaptchaService:
             return
 
         async with self._standby_lock:
+            cancelled_tasks = self._trim_standby_buckets_locked()
             existing_task = self._standby_refill_tasks.get(bucket_key)
             if existing_task and not existing_task.done():
+                for task in cancelled_tasks:
+                    task.cancel()
                 return
             current_depth = len(self._standby_tokens.get(bucket_key, []))
             if current_depth >= self._standby_pool_depth():
+                for task in cancelled_tasks:
+                    task.cancel()
                 return
             task = asyncio.create_task(
                 self._refill_standby_token(
@@ -2972,6 +3573,10 @@ class BrowserCaptchaService:
                 )
             )
             self._standby_refill_tasks[bucket_key] = task
+            self._standby_bucket_last_used[bucket_key] = time.monotonic()
+
+        for task in cancelled_tasks:
+            task.cancel()
 
     async def _refill_standby_token(
         self,
@@ -3264,6 +3869,11 @@ class BrowserCaptchaService:
             refill_tasks = list(self._standby_refill_tasks.values())
             self._standby_refill_tasks.clear()
             self._standby_tokens.clear()
+            self._standby_bucket_last_used.clear()
+
+        async with self._project_slot_lock:
+            self._project_slot_affinity.clear()
+            self._project_slot_last_used.clear()
 
         for task in refill_tasks:
             if not task or task.done():
