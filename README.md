@@ -217,6 +217,11 @@ pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
+说明：
+
+- `requirements.txt` 已包含 `playwright` 和 `nodriver`
+- 如果你要使用 `personal` 内置浏览器模式，必须先安装最新依赖
+
 Linux 如果缺系统依赖，可以改用：
 
 ```bash
@@ -444,6 +449,11 @@ pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
+说明：
+
+- `requirements.txt` 会同时安装 `playwright` 和 `nodriver`
+- 切到 `personal` 模式前，先确认当前虚拟环境已经更新到最新依赖
+
 #### 3. 准备配置
 
 ```bash
@@ -497,9 +507,10 @@ docker compose -f docker-compose.headed.yml up -d --build
 说明：
 
 - 该模式使用 `Dockerfile.headed`
-- 镜像内已安装 `Playwright Chromium + Xvfb + fluxbox`
+- 镜像内已安装 `Playwright Chromium + nodriver + Xvfb + fluxbox`
 - 默认角色是 `standalone`
 - `./data:/app/data` 必须保留，否则数据库、日志、密钥等状态会丢失
+- 如果节点刚切到 `personal` 模式，务必重新执行一次 `docker compose ... up -d --build`，或重新拉取最新 `headed` 镜像
 
 ---
 
@@ -1057,6 +1068,7 @@ docker pull ghcr.io/genz27/flow_captcha_service-headed:latest
 
 - `master` 镜像用于主节点
 - `headed` 镜像用于 `standalone` 或 `subnode`
+- `headed` 镜像同时支持 `browser` 和 `personal` 两种本地打码模式
 
 ---
 
@@ -1092,7 +1104,8 @@ docker pull ghcr.io/genz27/flow_captcha_service-headed:latest
 1. 是否执行过 `python -m playwright install chromium`
 2. Linux 是否缺依赖，必要时使用
    `python -m playwright install --with-deps chromium`
-3. 代理或显示环境是否异常
+3. 如果正在使用 `personal` 模式，确认当前环境已经安装 `nodriver`
+4. 代理或显示环境是否异常
 
 ### 4. `cluster.node_max_concurrency = 0` 是什么意思？
 
