@@ -385,7 +385,8 @@ cluster.node_max_concurrency = 0
 如果你希望 `flow2api` 的 `remote_browser` 模式尽量把“取 token 等待”前移，可以在 `flow_captcha_service` 里直接开启预热：
 
 - `browser_auto_warm_project_id`
-  - 填真实的 Flow `project_id` 后，会持续维护原生 Flow token 池
+  - `browser` 模式建议填写真实的 Flow `project_id`，用于持续维护原生 Flow token 池
+  - `personal` 模式留空时，也会自动创建通用 resident 预热页；填写后会优先保留该项目的 affinity
 - `browser_auto_warmup_action`
   - 指定原生池优先预热 `IMAGE_GENERATION` 还是 `VIDEO_GENERATION`
 - `browser_auto_warm_website_url` + `browser_auto_warm_website_key`
@@ -411,9 +412,10 @@ browser_auto_warm_action = "homepage"
 
 说明：
 
-- 原生 Flow 预热必须使用真实 `project_id`
-- 自定义预热适合 `custom-token` / `yescaptcha` 兼容链路的固定目标站点
-- 上面两类预热都留空时，服务仍可正常按需打码，只是不主动补池
+ - `browser` 模式的原生 Flow 预热最好使用真实 `project_id`
+ - `personal` 模式留空时，仍会创建 `warmup-1`、`warmup-2` 这类通用 resident 预热页
+ - 自定义预热适合 `custom-token` / `yescaptcha` 兼容链路的固定目标站点
+ - 上面两类预热都留空时，服务仍可正常按需打码，只是不主动补池
 
 ---
 
@@ -508,6 +510,7 @@ docker compose -f docker-compose.headed.yml up -d --build
 
 - 该模式使用 `Dockerfile.headed`
 - 镜像内已安装 `Playwright Chromium + nodriver + Xvfb + fluxbox`
+- 容器启动时会自动把 `BROWSER_EXECUTABLE_PATH` 指向 Playwright Chromium，供 `personal` 模式直接复用
 - 默认角色是 `standalone`
 - `./data:/app/data` 必须保留，否则数据库、日志、密钥等状态会丢失
 - 如果节点刚切到 `personal` 模式，务必重新执行一次 `docker compose ... up -d --build`，或重新拉取最新 `headed` 镜像
@@ -1105,7 +1108,8 @@ docker pull ghcr.io/genz27/flow_captcha_service-headed:latest
 2. Linux 是否缺依赖，必要时使用
    `python -m playwright install --with-deps chromium`
 3. 如果正在使用 `personal` 模式，确认当前环境已经安装 `nodriver`
-4. 代理或显示环境是否异常
+4. Docker `headed` 镜像会自动注入 Playwright Chromium 路径；如果你是手工运行，请确认 `BROWSER_EXECUTABLE_PATH` 或系统 Chrome/Chromium 可执行文件可用
+5. 代理或显示环境是否异常
 
 ### 4. `cluster.node_max_concurrency = 0` 是什么意思？
 

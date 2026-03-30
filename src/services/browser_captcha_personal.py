@@ -7,6 +7,7 @@ import asyncio
 import inspect
 import time
 import os
+import shutil
 import sys
 import subprocess
 import hashlib
@@ -95,6 +96,86 @@ def _ensure_nodriver_installed() -> bool:
         debug_logger.log_warning("[BrowserCaptcha] nodriver 未安装，请手动安装: pip install nodriver")
         print("[BrowserCaptcha] ⚠️ nodriver 未安装，请手动安装: pip install nodriver")
         return False
+
+
+def _normalize_browser_executable_path(value: Optional[str]) -> Optional[str]:
+    candidate = str(value or "").strip().strip('"').strip("'")
+    return candidate or None
+
+
+def _resolve_browser_executable_path() -> Optional[str]:
+    """优先使用显式配置，其次回退到系统浏览器和 Playwright Chromium。"""
+    env_candidate = _normalize_browser_executable_path(os.environ.get("BROWSER_EXECUTABLE_PATH"))
+    if env_candidate:
+        if os.path.isfile(env_candidate):
+            return env_candidate
+        resolved_env = shutil.which(env_candidate)
+        if resolved_env:
+            os.environ["BROWSER_EXECUTABLE_PATH"] = resolved_env
+            debug_logger.log_warning(
+                f"[BrowserCaptcha] BROWSER_EXECUTABLE_PATH 不是绝对路径，已解析为: {resolved_env}"
+            )
+            return resolved_env
+        debug_logger.log_warning(f"[BrowserCaptcha] BROWSER_EXECUTABLE_PATH 不可用: {env_candidate}")
+
+    command_candidates = [
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "msedge",
+        "chrome",
+    ]
+    for command in command_candidates:
+        resolved = shutil.which(command)
+        if resolved:
+            os.environ.setdefault("BROWSER_EXECUTABLE_PATH", resolved)
+            debug_logger.log_info(f"[BrowserCaptcha] 使用系统浏览器可执行文件: {resolved}")
+            return resolved
+
+    filesystem_candidates = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/microsoft-edge",
+        "/usr/bin/microsoft-edge-stable",
+        "/opt/google/chrome/chrome",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ]
+    for candidate in filesystem_candidates:
+        if os.path.isfile(candidate):
+            os.environ.setdefault("BROWSER_EXECUTABLE_PATH", candidate)
+            debug_logger.log_info(f"[BrowserCaptcha] 使用已知浏览器路径: {candidate}")
+            return candidate
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            playwright_candidate = _normalize_browser_executable_path(
+                getattr(playwright.chromium, "executable_path", None)
+            )
+        if playwright_candidate and os.path.exists(playwright_candidate):
+            os.environ["BROWSER_EXECUTABLE_PATH"] = playwright_candidate
+            debug_logger.log_info(
+                f"[BrowserCaptcha] 使用 Playwright Chromium 可执行文件: {playwright_candidate}"
+            )
+            return playwright_candidate
+    except Exception as exc:
+        debug_logger.log_warning(f"[BrowserCaptcha] 解析 Playwright Chromium 路径失败: {exc}")
+
+    debug_logger.log_warning(
+        "[BrowserCaptcha] 未找到可用 Chrome/Chromium 可执行文件，交由 nodriver 自行探测"
+    )
+    return None
 
 
 # 尝试导入 nodriver
@@ -842,7 +923,7 @@ class BrowserCaptchaService:
                 else:
                     debug_logger.log_info(f"[BrowserCaptcha] 正在启动 nodriver 浏览器 (使用临时目录)...")
 
-                browser_executable_path = os.environ.get("BROWSER_EXECUTABLE_PATH", "").strip() or None
+                browser_executable_path = _resolve_browser_executable_path()
                 if browser_executable_path:
                     debug_logger.log_info(
                         f"[BrowserCaptcha] 使用指定浏览器可执行文件: {browser_executable_path}"
@@ -2605,10 +2686,9 @@ class BrowserCaptchaService:
     async def warmup_browser_slots(self):
         await self.reload_config()
         project_id = str(getattr(config, "browser_auto_warm_project_id", "") or "").strip()
-        if not project_id:
-            return
         warmup_limit = max(1, int(getattr(config, "personal_max_resident_tabs", 1) or 1))
-        await self.warmup_resident_tabs([project_id], limit=warmup_limit)
+        project_ids = [project_id] if project_id else []
+        await self.warmup_resident_tabs(project_ids, limit=warmup_limit)
 
     async def refresh_warmup_settings(self):
         await self.reload_config()

@@ -57,11 +57,10 @@ class CaptchaRuntime:
         method = self._service_mode or self._resolve_local_captcha_method()
         if method == "personal":
             project_id = str(getattr(config, "browser_auto_warm_project_id", "") or "").strip()
-            if not project_id:
-                return
             warmup_limit = max(1, int(getattr(config, "personal_max_resident_tabs", 1) or 1))
             if hasattr(service, "warmup_resident_tabs"):
-                await service.warmup_resident_tabs([project_id], limit=warmup_limit)
+                project_ids = [project_id] if project_id else []
+                await service.warmup_resident_tabs(project_ids, limit=warmup_limit)
             return
 
         await service.warmup_browser_slots()

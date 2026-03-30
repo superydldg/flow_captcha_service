@@ -2059,7 +2059,7 @@
           </div>
           <div class="grid">
             <div class="field"><label>自动产码 Website Key</label><input id="cfgFlowWebsiteKey" placeholder="留空时使用 flow2api 默认 website key" /><div class="hint">用于原生 flow token 产码与启动后的自动补池。</div></div>
-            <div class="field"><label>自动产码 Project ID</label><input id="cfgAutoWarmProjectId" placeholder="46a52124-04fa-4db0-99ba-61c240490584" /><div class="hint">原生 flow 自动补池必须使用真实 Flow project id；留空时不会预热原生池。</div></div>
+            <div class="field"><label>自动产码 Project ID</label><input id="cfgAutoWarmProjectId" placeholder="46a52124-04fa-4db0-99ba-61c240490584" /><div class="hint">`browser` 模式建议填写真实 Flow project id；`personal` 模式留空时也会自动创建通用 resident 预热页。</div></div>
             <div class="field"><label>自动产码 Action</label><select id="cfgAutoWarmAction"><option value="IMAGE_GENERATION">图片（IMAGE_GENERATION）</option><option value="VIDEO_GENERATION">视频（VIDEO_GENERATION）</option></select><div class="hint">服务启动后会持续补图片和视频池；这里用于指定优先补的原生 action。master 角色仅保存模板，不会在本机执行。</div></div>
           </div>
           <div class="grid">
@@ -2115,7 +2115,7 @@
           </div>
 
           <div class="grid">
-            <div class="field"><label>本地打码模式</label><select id="cfgCaptchaMethod"><option value="browser">browser 共享浏览器</option><option value="personal">personal 内置浏览器</option></select><div class="hint">`browser` 使用 Playwright 共享浏览器池；`personal` 使用 nodriver 常驻标签页。</div></div>
+            <div class="field"><label>本地打码模式</label><select id="cfgCaptchaMethod"><option value="browser">browser 共享浏览器</option><option value="personal">personal 内置浏览器</option></select><div class="hint">`browser` 使用 Playwright 共享浏览器池；`personal` 使用 nodriver 常驻标签页。headed 镜像会自动注入 Playwright Chromium 路径。</div></div>
           </div>
 
           <div id="captchaPersonalBasicFields" class="grid">
